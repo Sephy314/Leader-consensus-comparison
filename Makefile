@@ -1,65 +1,64 @@
-# Consensus Lab Makefile
+# Consensus Lab Makefile (root)
 #
-# Targets:
-#   build          build the Docker image
-#   up-paxos N=5   start a 5-node Classic Paxos cluster
-#   up-epaxos N=5  start a 5-node EPaxos cluster
-#   down           remove the active Compose deployment
-#   exp-scaling    run the scaling experiment
-#   exp-workload   run the workload experiment
-#   exp-conflict   run the conflict experiment
-#   exp-failure    run the failure experiment
-#   exp-all        run all experiments sequentially
-#   report         generate results/report.html
-#   clean          remove generated compose files and experiment results
+# All targets are delegated to lab/Makefile, which is the authoritative
+# entry point for the benchmark lab. Run any lab target from the repository
+# root:
+#
+#   make build          build all Go binaries + EPaxos + docker image
+#   make smoke          staged smoke tests
+#   make run CFG=...    run one experiment
+#   make matrix         run the full experiment matrix
+#   make report         process raw results + figures + HTML report
+#   make html           HTML report from already-processed results
+#   make validate       validate the HTML report against the data
+#   make open-report    open the HTML report in the default browser
+#   make check-upstream verify vendored wire protocol matches upstream
+#   make clean-results  delete generated results
 
-LAB_DIR      := lab
-SCRIPTS      := $(LAB_DIR)/scripts
-COMPOSE_DIR  := $(LAB_DIR)/compose/generated
-RESULTS_DIR  := $(LAB_DIR)/results
-PY           := $(LAB_DIR)/.venv/bin/python
-N            ?= 5
-Q            ?= 10000
-REPS         ?= 3
+.PHONY: help build smoke run matrix report html validate open-report figures \
+        check-upstream tidy upstream-hash clean clean-results
 
-.PHONY: build up-paxos up-epaxos down \
-        exp-scaling exp-workload exp-conflict exp-failure exp-all \
-        report clean
+help:
+	$(MAKE) -C lab help
 
 build:
-	docker build -f $(LAB_DIR)/docker/Dockerfile -t conslab:latest .
+	$(MAKE) -C lab build
 
-up-paxos:
-	$(PY) $(SCRIPTS)/gen_compose.py --mode paxos --n $(N) --out $(COMPOSE_DIR)/paxos-$(N).yml
-	docker compose -f $(COMPOSE_DIR)/paxos-$(N).yml up -d --wait
+smoke:
+	$(MAKE) -C lab smoke
 
-up-epaxos:
-	$(PY) $(SCRIPTS)/gen_compose.py --mode epaxos --n $(N) --out $(COMPOSE_DIR)/epaxos-$(N).yml
-	docker compose -f $(COMPOSE_DIR)/epaxos-$(N).yml up -d --wait
+run:
+	$(MAKE) -C lab run
 
-down:
-	-docker compose -f $(COMPOSE_DIR)/paxos-$(N).yml down -v 2>/dev/null || true
-	-docker compose -f $(COMPOSE_DIR)/epaxos-$(N).yml down -v 2>/dev/null || true
-
-exp-scaling:
-	$(PY) $(SCRIPTS)/orchestrate.py scaling --q $(Q) --reps $(REPS)
-
-exp-workload:
-	$(PY) $(SCRIPTS)/orchestrate.py workload --n $(N) --q $(Q) --reps $(REPS)
-
-exp-conflict:
-	$(PY) $(SCRIPTS)/orchestrate.py conflict --n $(N) --q $(Q) --reps $(REPS)
-
-exp-failure:
-	$(PY) $(SCRIPTS)/failure_test.py --mode paxos --n $(N) --target leader --reps 1
-	$(PY) $(SCRIPTS)/failure_test.py --mode epaxos --n $(N) --target random --reps 1
-
-exp-all: exp-scaling exp-workload exp-conflict exp-failure
+matrix:
+	$(MAKE) -C lab matrix
 
 report:
-	$(PY) $(SCRIPTS)/report.py
+	$(MAKE) -C lab report
+
+html:
+	$(MAKE) -C lab html
+
+validate:
+	$(MAKE) -C lab validate
+
+open-report:
+	$(MAKE) -C lab open-report
+
+figures:
+	$(MAKE) -C lab figures
+
+check-upstream:
+	$(MAKE) -C lab check-upstream
+
+tidy:
+	$(MAKE) -C lab tidy
+
+upstream-hash:
+	$(MAKE) -C lab upstream-hash
 
 clean:
-	rm -rf $(COMPOSE_DIR) $(RESULTS_DIR)
-	@echo "Removed generated compose files and experiment results."
-	@echo "Vendored upstream source under $(LAB_DIR)/vendor/ was kept."
+	$(MAKE) -C lab clean
+
+clean-results:
+	$(MAKE) -C lab clean-results

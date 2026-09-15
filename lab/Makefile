@@ -8,7 +8,7 @@ IMAGE   ?= conslab:lab
 RUNNER  := ./bin/runner
 PY      ?= .venv/bin/python
 
-.PHONY: help build image smoke run matrix report figures check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix report html open-report validate figures check-upstream tidy upstream-hash clean clean-results
 
 help:
 	@echo "targets:"
@@ -16,10 +16,13 @@ help:
 	@echo "  smoke           staged smoke tests (build, clusters, requests, workload, failures, metrics)"
 	@echo "  run             run one experiment:  make run CFG=configs/smoke.json"
 	@echo "  matrix          run the full experiment matrix (hours)"
-	@echo "  report          process raw results + generate figures"
+	@echo "  report          process raw results + generate figures + HTML report"
+	@echo "  html            generate the HTML report from already-processed results"
+	@echo "  validate        validate the HTML report against the underlying data"
+	@echo "  open-report     open the HTML report in the default browser (optional)"
 	@echo "  figures         generate figures only"
 	@echo "  check-upstream  verify vendored wire protocol matches upstream"
-	@echo "  clean-results   delete results/raw, processed and figures"
+	@echo "  clean-results   delete results/raw, processed, figures and report"
 
 build:
 	$(GO) build -o $(RUNNER) ./runner
@@ -36,8 +39,27 @@ run:
 matrix:
 	$(RUNNER) matrix --config configs/matrix.json
 
+# Full pipeline: raw -> processed -> figures -> HTML report -> validation.
 report:
-	$(PY) report/process.py --raw results/raw --processed results/processed --figures results/figures
+	$(PY) report/process.py --raw results/raw --processed results/processed
+	$(PY) report/figures.py --processed results/processed --figures results/figures
+	$(PY) report/html.py --processed results/processed --raw results/raw --figures results/figures --config configs/matrix.json --out results/report
+	$(PY) report/validate_html.py --report results/report/index.html --processed results/processed --raw results/raw --figures results/figures
+
+# HTML report from already-processed results (no reprocessing).
+html:
+	$(PY) report/html.py --processed results/processed --raw results/raw --figures results/figures --config configs/matrix.json --out results/report
+	$(PY) report/validate_html.py --report results/report/index.html --processed results/processed --raw results/raw --figures results/figures
+
+validate:
+	$(PY) report/validate_html.py --report results/report/index.html --processed results/processed --raw results/raw --figures results/figures
+
+# Optional: open the report in the default browser (portable on macOS/Linux).
+open-report:
+	@test -f results/report/index.html || (echo "report not found; run 'make report' first" && exit 1)
+	@(command -v xdg-open >/dev/null 2>&1 && xdg-open results/report/index.html) || \
+	 (command -v open >/dev/null 2>&1 && open results/report/index.html) || \
+	 echo "no browser opener found; open results/report/index.html manually"
 
 figures:
 	$(PY) report/figures.py --processed results/processed --figures results/figures
@@ -69,4 +91,4 @@ clean:
 	docker rmi -f $(IMAGE) 2>/dev/null || true
 
 clean-results:
-	rm -rf results/raw/* results/processed/* results/figures/* results/run-index.csv
+	rm -rf results/raw/* results/processed/* results/figures/* results/report results/run-index.csv

@@ -19,14 +19,15 @@ lab/
 ├── client/                common benchmark client (both protocols, one wire protocol)
 ├── monitor/               host-side per-container resource sampler
 ├── runner/                experiment runner: build, run, matrix, smoke
-├── report/                processing + figure generation (Python)
+├── report/                processing + figure + HTML report generation (Python)
 ├── configs/               explicit experiment configurations (matrix.json, smoke.json)
 ├── docker/                lab runtime image
 ├── internal/              shared packages (wire protocol, state, config)
 └── results/
     ├── raw/<run-id>/      raw measurements (never overwritten)
     ├── processed/         aggregated metrics (generated)
-    └── figures/           figures (generated from measured data)
+    ├── figures/           figures (generated from measured data)
+    └── report/            self-contained HTML benchmark report (generated)
 ```
 
 ## Architecture
@@ -76,8 +77,41 @@ cd lab
 make build        # Go binaries + upstream EPaxos + docker image
 make smoke        # staged smoke tests (build, clusters, requests, workload, failures, metrics)
 make matrix       # full experiment matrix (hours)
-make report       # process raw results + generate figures
+make report       # process raw results + generate figures + HTML report
 ```
+
+`make report` runs the full pipeline `raw → processed → figures → HTML report`
+and validates the report against the underlying data. The HTML report is a
+single self-contained offline file:
+
+```
+results/report/index.html
+```
+
+To regenerate only the HTML report from already-processed results:
+
+```sh
+make html
+```
+
+To validate the report without regenerating:
+
+```sh
+make validate
+```
+
+To open it in the default browser (optional):
+
+```sh
+make open-report
+```
+
+The report is entirely data-driven: every number, run, figure reference, and
+failure record is derived from the actual result files at generation time
+(`report/html.py`). No benchmark outcome is hardcoded. If `results/` is
+replaced with a different valid dataset, the report describes the new dataset
+without source changes. `report/validate_html.py` checks the report against
+the underlying data (counts, sections, figure references, failed runs).
 
 Run one experiment independently:
 

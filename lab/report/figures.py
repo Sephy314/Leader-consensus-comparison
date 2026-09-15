@@ -12,6 +12,14 @@ import argparse
 import csv
 import json
 import os
+import sys
+
+# report/html.py shadows the stdlib `html` package for any script run from
+# this directory (sys.path[0] = report/). matplotlib's pyparsing dependency
+# imports html.entities, so drop the script directory from sys.path before
+# importing matplotlib to let the stdlib html resolve.
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path = [p for p in sys.path if os.path.abspath(p) != _script_dir]
 
 import matplotlib
 
