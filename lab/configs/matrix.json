@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "protocol": "raft",
+    "replicas": 3,
+    "read_pct": 50,
+    "write_pct": 50,
+    "concurrency": 32,
+    "duration_s": 20,
+    "warmup_s": 3,
+    "repetitions": 3,
+    "failure": {"mode": "none", "at_s": 0, "restart_after_s": 0},
+    "replica_cpus": 2.0,
+    "replica_mem_mb": 512,
+    "client_cpus": 2.0,
+    "client_mem_mb": 512,
+    "master_cpus": 1.0,
+    "master_mem_mb": 256,
+    "keyspace": 1000,
+    "timeout_ms": 2000,
+    "seed": 42,
+    "gomaxprocs": 4,
+    "raft_heartbeat_ms": 1000,
+    "raft_election_ms": 2000,
+    "raft_snapshot_threshold": 8192,
+    "raft_trailing_logs": 1024
+  },
+  "workload": {
+    "protocols": ["raft", "epaxos"],
+    "replicas": 3,
+    "read_pcts": [100, 90, 50, 10, 0],
+    "concurrencies": [1, 2, 4, 8, 16, 32, 64, 128]
+  },
+  "scaling": {
+    "protocols": ["raft", "epaxos"],
+    "replicas": [3, 5, 7, 9],
+    "write_pct": 100,
+    "concurrency": 32
+  },
+  "failure": {
+    "cases": [
+      {"protocol": "raft",   "mode": "leader",   "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0},
+      {"protocol": "raft",   "mode": "follower", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0},
+      {"protocol": "epaxos", "mode": "replica",  "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0}
+    ]
+  }
+}

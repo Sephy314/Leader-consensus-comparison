@@ -1,0 +1,11 @@
+The Cost of Centralised Ordering
+
+This repository contains third-party software.
+
+See THIRD-PARTY-NOTICES.md for details.
+
+This product includes software developed by Carnegie Mellon University
+(the "upstream epaxos implementation", vendored under lab/vendor/epaxos/).
+
+This product is distributed under the Apache License, Version 2.0.
+See LICENSE for the full license text.

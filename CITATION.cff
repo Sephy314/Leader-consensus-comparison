@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this research software, please cite it using the metadata below."
+title: "The Cost of Centralised Ordering: An Experimental Study of Leader-Based and Leaderless Consensus"
+type: software
+authors:
+  - given-names: Davie
+    family-names: Ryu
+    alias: Sephy314
+repository-code: "https://github.com/Sephy314/Leader-consensus-study"
+license: Apache-2.0

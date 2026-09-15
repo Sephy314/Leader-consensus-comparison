@@ -1,0 +1,18 @@
+# Lab runtime image. All containers in every run use this single image, so
+# the container environment (base OS, libc, DNS resolver) is identical for
+# Raft and EPaxos and for every role.
+#
+# The Go binaries are built on the host by `runner build` (which produces
+# lab/bin/) and copied in here. Building on the host keeps the image build
+# trivial and means the image contains exactly the binaries whose provenance
+# is recorded in each run's metadata.json.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates iproute2 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY bin/ /usr/local/bin/
+
+# Default: idle. Every service overrides the command.
+CMD ["/bin/bash"]
