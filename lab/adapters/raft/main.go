@@ -135,6 +135,7 @@ type Replica struct {
 	id    int
 	raft  *raft.Raft
 	peers []raft.Server // ordered like the master's NodeList
+	iso   *isolatingTransport
 }
 
 func (r *Replica) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
@@ -160,6 +161,72 @@ func (r *Replica) LeaderId(args *proto.LeaderIdArgs, reply *proto.LeaderIdReply)
 	}
 	reply.LeaderId = -1
 	return nil
+}
+
+// Stats reports cumulative protocol counters. For Raft there is no fast/slow
+// path distinction, so the counters are zero; the RPC exists so the runner
+// can query both protocols uniformly.
+func (r *Replica) Stats(args *proto.StatsArgs, reply *proto.StatsReply) error {
+	reply.FastPath = 0
+	reply.SlowPath = 0
+	reply.Conflicted = 0
+	return nil
+}
+
+// IsolateElections is the election-failure injection hook. It makes this
+// replica's Raft transport drop RequestVote/RequestPreVote for the requested
+// duration, so the next election attempt(s) fail to obtain a quorum. The
+// injection is a fault hook around the existing transport; HashiCorp Raft's
+// election algorithm is not modified. DurationMS = 0 clears the isolation.
+func (r *Replica) IsolateElections(args *proto.IsolateArgs, reply *proto.IsolateReply) error {
+	if r.iso == nil {
+		reply.OK = false
+		return nil
+	}
+	if args.DurationMS <= 0 {
+		r.iso.clear()
+	} else {
+		r.iso.isolateFor(time.Duration(args.DurationMS) * time.Millisecond)
+	}
+	reply.OK = true
+	return nil
+}
+
+// isolatingTransport wraps a raft.Transport and drops vote requests while
+// isolated. This is the mechanism behind the election-failure experiment:
+// with votes unreachable, a candidate's election attempt fails; when the
+// isolation is cleared, the next attempt succeeds.
+type isolatingTransport struct {
+	raft.Transport
+	mu           sync.Mutex
+	isolateUntil time.Time
+}
+
+func (t *isolatingTransport) isolateFor(d time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.isolateUntil = time.Now().Add(d)
+}
+
+func (t *isolatingTransport) clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.isolateUntil = time.Time{}
+}
+
+func (t *isolatingTransport) isolated() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return time.Now().Before(t.isolateUntil)
+}
+
+// RequestVote drops both RequestVote and RequestPreVote (the pre-vote flag is
+// carried in the request) while isolated.
+func (t *isolatingTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
+	if t.isolated() {
+		return fmt.Errorf("transport isolated: vote request dropped (election-failure injection)")
+	}
+	return t.Transport.RequestVote(id, target, args, resp)
 }
 
 func (r *Replica) handlePropose(prop *proto.Propose, w *bufio.Writer) {
@@ -251,22 +318,25 @@ func resolvePeerAddr(host string, port int) (string, error) {
 	return "", fmt.Errorf("resolving %s: %w", host, lastErr)
 }
 
-func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server, fsm raft.FSM) (*raft.Raft, error) {
+func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server, fsm raft.FSM) (*raft.Raft, *isolatingTransport, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	store, err := raftboltdb.NewBoltStore(filepath.Join(dir, "raft.db"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	snapshots, err := raft.NewFileSnapshotStore(dir, 2, os.Stderr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	transport, err := raft.NewTCPTransport(bindAddr, advertise, 3, 10*time.Second, os.Stderr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	// Wrap the transport so the lab can inject election failures by
+	// dropping vote requests. The wrapper delegates everything else.
+	iso := &isolatingTransport{Transport: transport}
 	cfg := raft.DefaultConfig()
 	cfg.LocalID = raft.ServerID(advertise.String())
 	cfg.HeartbeatTimeout = time.Duration(*heartbeatMS) * time.Millisecond
@@ -280,19 +350,19 @@ func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server
 
 	hasState, err := raft.HasExistingState(store, store, snapshots)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !hasState {
 		conf := raft.Configuration{Servers: peers}
-		if err := raft.BootstrapCluster(cfg, store, store, snapshots, transport, conf); err != nil {
-			return nil, err
+		if err := raft.BootstrapCluster(cfg, store, store, snapshots, iso, conf); err != nil {
+			return nil, nil, err
 		}
 	}
-	r, err := raft.NewRaft(cfg, fsm, store, store, snapshots, transport)
+	r, err := raft.NewRaft(cfg, fsm, store, store, snapshots, iso)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return r, nil
+	return r, iso, nil
 }
 
 func main() {
@@ -332,12 +402,12 @@ func main() {
 		log.Fatalf("resolving own advertise address: %v", err)
 	}
 
-	r, err := setupRaft(*dir, localAddr, advertise, peers, newFSM())
+	r, iso, err := setupRaft(*dir, localAddr, advertise, peers, newFSM())
 	if err != nil {
 		log.Fatalf("raft setup: %v", err)
 	}
 
-	rep := &Replica{id: replicaID, raft: r, peers: peers}
+	rep := &Replica{id: replicaID, raft: r, peers: peers, iso: iso}
 	rpc.Register(rep)
 	rpc.HandleHTTP()
 	go func() {

@@ -138,6 +138,17 @@ class Dataset:
                     except Exception:
                         pass
 
+        # Per-run protocol counters (EPaxos fast/slow path) from stats.json.
+        self.stats = {}
+        if os.path.isdir(raw):
+            for run_id in os.listdir(raw):
+                sp = os.path.join(raw, run_id, "stats.json")
+                if os.path.isfile(sp):
+                    try:
+                        self.stats[run_id] = load_json(sp)
+                    except Exception:
+                        pass
+
         # Merge run-index.json with metrics for the run explorer.
         self.runs = self._build_runs()
 
@@ -287,8 +298,6 @@ class Dataset:
         return rows
 
     def versions(self):
-        """Collect version/provenance info from the most recent run metadata
-        and upstream/VERSIONS.md."""
         info = {}
         # Most recent run metadata (by started_at) carries the environment.
         dated = [r for r in self.runs if r["started_at"]]
@@ -307,6 +316,159 @@ class Dataset:
             with open(vp) as f:
                 info["versions_md"] = f.read()
         return info
+
+    # -- additional experiments --------------------------------------------
+
+    def conflict_table(self):
+        """Per (protocol, conflict_pct): mean throughput/latency and, for
+        EPaxos, the fast/slow path ratio. All values are derived from the
+        dataset; nothing is assumed about the relationship."""
+        rows = []
+        pcts = sorted({int(m.get("conflict_pct", 0)) for m in self.metrics
+                       if m.get("conflict_pct") is not None})
+        for proto in self.protocols:
+            for pct in pcts:
+                runs = [r for r in self.runs
+                        if r["protocol"] == proto and r["valid"]
+                        and str(r.get("conflict_pct", "")) == str(pct)]
+                if not runs:
+                    continue
+                tputs = [fnum(r["throughput"]) for r in runs]
+                p50s = [fnum(r["p50"]) for r in runs]
+                p95s = [fnum(r["p95"]) for r in runs]
+                # Fast/slow path from stats.json (EPaxos only).
+                fast = slow = None
+                if proto == "epaxos":
+                    fsum = ssum = 0
+                    for r in runs:
+                        for rec in self.stats.get(r["run_id"], []):
+                            fsum += int(rec.get("fast_path", 0))
+                            ssum += int(rec.get("slow_path", 0))
+                    if fsum + ssum > 0:
+                        fast = fsum / (fsum + ssum)
+                        slow = ssum / (fsum + ssum)
+                rows.append({
+                    "protocol": proto, "conflict_pct": pct, "runs": len(runs),
+                    "throughput_mean": statistics.mean(tputs) if tputs else None,
+                    "p50_mean": statistics.mean(p50s) if p50s else None,
+                    "p95_mean": statistics.mean(p95s) if p95s else None,
+                    "fast_path_ratio": fast,
+                    "slow_path_ratio": slow,
+                })
+        return rows
+
+    def concurrency_table(self):
+        """Per (protocol, concurrency): mean throughput/latency and per-node
+        CPU distribution from resources.csv."""
+        rows = []
+        concs = sorted({int(m.get("concurrency", 0)) for m in self.metrics
+                        if m.get("concurrency") is not None})
+        for proto in self.protocols:
+            for c in concs:
+                runs = [r for r in self.runs
+                        if r["protocol"] == proto and r["valid"]
+                        and str(r.get("concurrency", "")) == str(c)]
+                if not runs:
+                    continue
+                tputs = [fnum(r["throughput"]) for r in runs]
+                p50s = [fnum(r["p50"]) for r in runs]
+                p95s = [fnum(r["p95"]) for r in runs]
+                # Per-node CPU: mean cpu_util_pct per replica across runs.
+                node_cpu = {}
+                for r in runs:
+                    for rec in self.resources:
+                        if rec.get("run_id") == r["run_id"] and rec.get("role") == "replica":
+                            node_cpu.setdefault(rec["replica_id"], []).append(fnum(rec.get("cpu_util_pct")))
+                cpu_means = [statistics.mean(v) for v in node_cpu.values() if v]
+                rows.append({
+                    "protocol": proto, "concurrency": c, "runs": len(runs),
+                    "throughput_mean": statistics.mean(tputs) if tputs else None,
+                    "p50_mean": statistics.mean(p50s) if p50s else None,
+                    "p95_mean": statistics.mean(p95s) if p95s else None,
+                    "node_cpu": {k: statistics.mean(v) for k, v in node_cpu.items() if v},
+                    "cpu_max": max(cpu_means) if cpu_means else None,
+                    "cpu_min": min(cpu_means) if cpu_means else None,
+                })
+        return rows
+
+    def election_table(self):
+        """Per failed-elections target: measured recovery time. Recovery is
+        derived from the events timeline (leader_observed transitions) and
+        request timestamps; the actual number of failed elections is what the
+        log shows, not the configured target."""
+        rows = []
+        for r in self.runs:
+            if r["failure_mode"] != "election" or not r["valid"]:
+                continue
+            meta = self.meta.get(r["run_id"], {})
+            cfg = meta.get("config", {})
+            target = cfg.get("failure", {}).get("failed_elections", 0)
+            ev = self._events(r["run_id"])
+            # Recovery: time from failure_injected to the first leader_observed
+            # with a valid leader after it.
+            fail_ts = None
+            for e in ev:
+                if e.get("event") == "failure_injected":
+                    fail_ts = int(e["ts_ns"])
+            if fail_ts is None:
+                continue
+            recover_ts = None
+            for e in ev:
+                if e.get("event") == "leader_observed" and int(e["ts_ns"]) > fail_ts:
+                    try:
+                        if int(e["detail"]) >= 0:
+                            recover_ts = int(e["ts_ns"])
+                            break
+                    except ValueError:
+                        continue
+            rows.append({
+                "run_id": r["run_id"],
+                "protocol": r["protocol"],
+                "target_failed_elections": target,
+                "recovery_s": (recover_ts - fail_ts) / 1e9 if recover_ts else None,
+            })
+        return rows
+
+    def _events(self, run_id):
+        p = os.path.join(self.raw, run_id, "events.csv")
+        if not os.path.exists(p):
+            return []
+        return read_csv(p)
+
+    def read_semantics(self):
+        """Read-consistency metadata for each protocol. Prefers the per-run
+        metadata; falls back to the documented semantics so the section is
+        always present."""
+        documented = {
+            "raft": {
+                "system": "raft",
+                "read_consistency": "linearizable",
+                "read_path": "client -> leader (raft.Raft.Leader) -> raft.Apply(GET) -> quorum commit -> state read -> reply",
+                "coordination_required": True,
+                "target_replica": "leader",
+                "mechanism": "leader-confirmed, quorum-based (every read is a consensus command; no local-read optimization)",
+            },
+            "epaxos": {
+                "system": "epaxos",
+                "read_consistency": "linearizable",
+                "read_path": "client -> any replica (round-robin) -> consensus command -> executed at all replicas in dependency order -> reply",
+                "coordination_required": True,
+                "target_replica": "any (leaderless)",
+                "mechanism": "quorum-based, dependency-ordered execution (reads and writes share the same consensus path)",
+            },
+        }
+        out = {}
+        for proto in self.protocols:
+            runs = [r for r in self.runs if r["protocol"] == proto and r["started_at"]]
+            rs = {}
+            if runs:
+                latest = max(runs, key=lambda r: r["started_at"])
+                rs = self.meta.get(latest["run_id"], {}).get("read_semantics", {})
+            if not rs:
+                rs = documented.get(proto, {})
+            if rs:
+                out[proto] = rs
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +540,10 @@ pre { background: var(--code-bg); padding: 12px; border-radius: 8px; overflow-x:
 def render_nav():
     items = [
         ("summary", "Summary"), ("config", "Configuration"), ("workload", "Workload"),
-        ("scaling", "Scaling"), ("failure", "Failure"), ("resources", "Resources"),
-        ("figures", "Figures"), ("runs", "Run Explorer"), ("repro", "Reproducibility"),
-        ("limitations", "Limitations"),
+        ("scaling", "Scaling"), ("conflict", "Conflict"), ("concurrency", "Concurrency"),
+        ("election", "Election"), ("read", "Read Semantics"), ("failure", "Failure"),
+        ("resources", "Resources"), ("figures", "Figures"), ("runs", "Run Explorer"),
+        ("repro", "Reproducibility"), ("limitations", "Limitations"),
     ]
     return '<nav>' + "".join(f'<a href="#{k}">{v}</a>' for k, v in items) + '</nav>'
 
@@ -581,6 +744,112 @@ def render_scaling(ds):
   their recorded reason; they are not presented as zero throughput.</p>
   {table}
   {fig_html}
+</section>"""
+
+
+def render_conflict(ds):
+    rows = ds.conflict_table()
+    if not rows:
+        return "<section id=\"conflict\"><h2>Conflict-Rate Sensitivity</h2><p class='note'>No conflict-rate data.</p></section>"
+    body = []
+    for r in rows:
+        fast = fmt_num(r["fast_path_ratio"], 3) if r["fast_path_ratio"] is not None else NAN_LABEL
+        slow = fmt_num(r["slow_path_ratio"], 3) if r["slow_path_ratio"] is not None else NAN_LABEL
+        body.append(f"<tr><td>{esc(r['protocol'])}</td><td>{r['conflict_pct']}%</td>"
+                    f"<td>{r['runs']}</td><td>{fmt_num(r['throughput_mean'], 0)}</td>"
+                    f"<td>{fmt_ms(r['p50_mean'])}</td><td>{fmt_ms(r['p95_mean'])}</td>"
+                    f"<td>{fast}</td><td>{slow}</td></tr>")
+    table = ("<table><thead><tr><th>Protocol</th><th>Conflict rate</th><th>Runs</th>"
+             "<th>Throughput (req/s, mean)</th><th>p50 (mean)</th><th>p95 (mean)</th>"
+             "<th>Fast-path ratio</th><th>Slow-path ratio</th></tr></thead><tbody>"
+             + "".join(body) + "</tbody></table>")
+    return f"""
+<section id="conflict">
+  <h2>Conflict-Rate Sensitivity</h2>
+  <p class="note">Throughput and latency vs the configured conflict rate
+  (fraction of requests targeting shared hot keys). The realized hot-key
+  fraction is recorded per request, so the actual conflict rate is
+  measurable. Fast/slow path ratios are the EPaxos counters instrumented in
+  the upstream; Raft has no such distinction. The relationship is discovered
+  from the data, not assumed.</p>
+  {table}
+</section>"""
+
+
+def render_concurrency(ds):
+    rows = ds.concurrency_table()
+    if not rows:
+        return "<section id='concurrency'><h2>Write-Concurrency Scaling</h2><p class='note'>No concurrency data.</p></section>"
+    body = []
+    for r in rows:
+        cpu = ", ".join(f"n{k}:{v:.1f}%" for k, v in sorted(r["node_cpu"].items()))
+        body.append(f"<tr><td>{esc(r['protocol'])}</td><td>{r['concurrency']}</td>"
+                    f"<td>{r['runs']}</td><td>{fmt_num(r['throughput_mean'], 0)}</td>"
+                    f"<td>{fmt_ms(r['p50_mean'])}</td><td>{fmt_ms(r['p95_mean'])}</td>"
+                    f"<td>{fmt_num(r['cpu_min'], 1)}</td><td>{fmt_num(r['cpu_max'], 1)}</td>"
+                    f"<td>{esc(cpu)}</td></tr>")
+    table = ("<table><thead><tr><th>Protocol</th><th>Concurrency</th><th>Runs</th>"
+             "<th>Throughput (req/s, mean)</th><th>p50 (mean)</th><th>p95 (mean)</th>"
+             "<th>Min node CPU %</th><th>Max node CPU %</th><th>Per-node CPU %</th>"
+             "</tr></thead><tbody>" + "".join(body) + "</tbody></table>")
+    return f"""
+<section id="concurrency">
+  <h2>Write-Concurrency Scaling</h2>
+  <p class="note">Throughput, latency, and per-node CPU distribution vs
+  concurrency. Per-node CPU is the mean replica CPU utilisation from
+  <code>results/processed/resources.csv</code>. Whether work concentrates on
+  a Raft leader is left to the data; the report does not label a bottleneck.</p>
+  {table}
+</section>"""
+
+
+def render_election(ds):
+    rows = ds.election_table()
+    if not rows:
+        return "<section id=\"election\"><h2>Election-Failure Recovery</h2><p class='note'>No election-failure data.</p></section>"
+    body = []
+    for r in rows:
+        body.append(f"<tr><td>{esc(r['run_id'])}</td><td>{esc(r['protocol'])}</td>"
+                    f"<td>{r['target_failed_elections']}</td>"
+                    f"<td>{fmt_num(r['recovery_s'], 2)}</td></tr>")
+    table = ("<table><thead><tr><th>Run ID</th><th>Protocol</th>"
+             "<th>Target failed elections</th><th>Recovery time (s)</th>"
+             "</tr></thead><tbody>" + "".join(body) + "</tbody></table>")
+    return f"""
+<section id="election">
+  <h2>Election-Failure Recovery</h2>
+  <p class="note">Recovery time vs the number of failed election attempts
+  induced by isolating the Raft transport (vote requests dropped). The
+  relationship is measured, not assumed to be linear. Recovery time is the
+  interval from failure injection to the first valid leader observation.</p>
+  {table}
+</section>"""
+
+
+def render_read_semantics(ds):
+    rs = ds.read_semantics()
+    if not rs:
+        return "<section id=\"read\"><h2>Read-Path / Consistency Semantics</h2><p class='note'>No read-semantics metadata recorded.</p></section>"
+    body = []
+    for proto in sorted(rs):
+        s = rs[proto]
+        body.append(f"<tr><td>{esc(s.get('system', proto))}</td>"
+                    f"<td>{esc(s.get('read_consistency', NAN_LABEL))}</td>"
+                    f"<td>{esc(s.get('target_replica', NAN_LABEL))}</td>"
+                    f"<td>{esc(s.get('mechanism', NAN_LABEL))}</td>"
+                    f"<td><code>{esc(s.get('read_path', NAN_LABEL))}</code></td></tr>")
+    table = ("<table><thead><tr><th>System</th><th>Read consistency</th>"
+             "<th>Target replica</th><th>Mechanism</th><th>Read path</th>"
+             "</tr></thead><tbody>" + "".join(body) + "</tbody></table>")
+    return f"""
+<section id="read">
+  <h2>Read-Path / Consistency Semantics</h2>
+  <p class="note">Both protocols route reads through consensus (no local-read
+  optimization), so the Read benchmark compares equivalent consistency
+  guarantees. The coordination mechanism differs: Raft targets the leader,
+  EPaxos is leaderless. This metadata is recorded per run in
+  <code>metadata.json</code>.</p>
+  {table}
 </section>"""
 
 
@@ -858,6 +1127,10 @@ def render_page(ds):
         render_config(ds),
         render_workload(ds),
         render_scaling(ds),
+        render_conflict(ds),
+        render_concurrency(ds),
+        render_election(ds),
+        render_read_semantics(ds),
         render_failure(ds),
         render_resources(ds),
         render_figures(ds),

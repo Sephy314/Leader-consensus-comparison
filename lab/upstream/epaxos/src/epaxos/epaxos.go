@@ -263,6 +263,27 @@ func (r *Replica) stopAdapting() {
 
 var conflicted, weird, slow, happy int
 
+// StatsArgs/StatsReply expose the upstream's cumulative fast/slow path
+// counters over RPC. This is lab instrumentation only: the counters are the
+// upstream's own (happy = fast path, weird+slow = slow path, conflicted =
+// conflicts observed); no protocol logic is added or changed.
+type StatsArgs struct{}
+
+type StatsReply struct {
+	FastPath   int64
+	SlowPath   int64
+	Conflicted int64
+}
+
+// GetStats reports the cumulative fast/slow path execution counts. The lab's
+// runner queries every replica to compute fast-path and slow-path ratios.
+func (r *Replica) GetStats(args *StatsArgs, reply *StatsReply) error {
+	reply.FastPath = int64(happy)
+	reply.SlowPath = int64(weird + slow)
+	reply.Conflicted = int64(conflicted)
+	return nil
+}
+
 /* ============= */
 
 /***********************************

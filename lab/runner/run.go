@@ -138,6 +138,10 @@ func executeRun(cfg labcfg.Run, rep int) runResult {
 	events.log(runID, "client_exit", strconv.Itoa(code))
 	events.log(runID, "run_finished", "")
 
+	// Collect per-replica protocol counters (EPaxos fast/slow path) while the
+	// containers are still up.
+	collectStats(dir, cfg, runID)
+
 	// Validate that the run produced usable raw data.
 	if reason := validateRunOutputs(dir); reason != "" {
 		res.Reason = reason
@@ -147,6 +151,31 @@ func executeRun(cfg labcfg.Run, rep int) runResult {
 	events.log(runID, "status", res.Status+" "+res.Reason)
 	writeMetadata(dir, cfg, rep, runID, res, started, time.Now())
 	return res
+}
+
+// collectStats queries every replica's cumulative protocol counters and
+// writes them to stats.json. For EPaxos these are the fast/slow path counts
+// (instrumented in the upstream); for Raft the counters are zero.
+func collectStats(dir string, cfg labcfg.Run, runID string) {
+	if cfg.Protocol != "epaxos" {
+		return
+	}
+	stats := make([]map[string]any, 0, cfg.Replicas)
+	for i := 0; i < cfg.Replicas; i++ {
+		s, err := replicaStats(i)
+		if err != nil {
+			stats = append(stats, map[string]any{"replica": i, "error": err.Error()})
+			continue
+		}
+		stats = append(stats, map[string]any{
+			"replica":    i,
+			"fast_path":  s.FastPath,
+			"slow_path":  s.SlowPath,
+			"conflicted": s.Conflicted,
+		})
+	}
+	data, _ := json.MarshalIndent(stats, "", "  ")
+	os.WriteFile(filepath.Join(dir, "stats.json"), data, 0o644)
 }
 
 func makeRunDir(cfg labcfg.Run, rep int) (string, string) {
@@ -238,10 +267,36 @@ func writeMetadata(dir string, cfg labcfg.Run, rep int, runID string, res runRes
 			"interval_s": monitorInterval.Seconds(),
 			"resolution": "~200ms; recovery timings derived from this are approximate",
 		},
-		"notes": notes(cfg),
+		"read_semantics": readSemantics(cfg.Protocol),
+		"notes":          notes(cfg),
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	os.WriteFile(filepath.Join(dir, "metadata.json"), data, 0o644)
+}
+
+// readSemantics documents the consistency semantics of the read path for
+// each protocol, so the Read benchmark is interpreted under the correct
+// equivalence. Both protocols route reads through consensus; the difference
+// is the coordination mechanism.
+func readSemantics(protocol string) map[string]any {
+	if protocol == "raft" {
+		return map[string]any{
+			"system":              "raft",
+			"read_consistency":    "linearizable",
+			"read_path":           "client -> leader (raft.Raft.Leader) -> raft.Apply(GET) -> quorum commit -> state read -> reply",
+			"coordination_required": true,
+			"target_replica":      "leader",
+			"mechanism":           "leader-confirmed, quorum-based (every read is a consensus command; no local-read optimization)",
+		}
+	}
+	return map[string]any{
+		"system":                "epaxos",
+		"read_consistency":      "linearizable",
+		"read_path":             "client -> any replica (round-robin) -> consensus command -> executed at all replicas in dependency order -> reply",
+		"coordination_required": true,
+		"target_replica":        "any (leaderless)",
+		"mechanism":             "quorum-based, dependency-ordered execution (reads and writes share the same consensus path)",
+	}
 }
 
 func nullable(s string) any {
@@ -489,6 +544,35 @@ func masterReplicaHost(cli *rpc.Client, index int) string {
 	}
 }
 
+// replicaRPC dials replica i's admin RPC (exposed on a host port).
+func replicaRPC(i int) (*rpc.Client, error) {
+	return rpc.DialHTTP("tcp", fmt.Sprintf("127.0.0.1:%d", replicaAdminHostPort(i)))
+}
+
+// isolateReplica asks replica i to isolate its Raft transport for the given
+// duration (election-failure injection). DurationMS = 0 clears the isolation.
+func isolateReplica(i int, durationMS int64) error {
+	cli, err := replicaRPC(i)
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+	var reply proto.IsolateReply
+	return cli.Call("Replica.IsolateElections", &proto.IsolateArgs{DurationMS: durationMS}, &reply)
+}
+
+// replicaStats queries replica i's cumulative protocol counters.
+func replicaStats(i int) (proto.StatsReply, error) {
+	var reply proto.StatsReply
+	cli, err := replicaRPC(i)
+	if err != nil {
+		return reply, err
+	}
+	defer cli.Close()
+	err = cli.Call("Replica.Stats", new(proto.StatsArgs), &reply)
+	return reply, err
+}
+
 // injectFailure kills the configured target container at the configured time
 // into the measured phase.
 func injectFailure(cfg labcfg.Run, runID string, phaseStart time.Time, events *eventLog) {
@@ -532,6 +616,9 @@ func injectFailure(cfg labcfg.Run, runID string, phaseStart time.Time, events *e
 		}
 		container = containerName(runID, host)
 		events.log(runID, "failure_target", fmt.Sprintf("follower replica%d (%s) leader=%d", follower, host, leader))
+	case labcfg.FailureElection:
+		injectElectionFailure(cfg, runID, events)
+		return
 	default: // FailureReplica (EPaxos)
 		container = containerName(runID, "replica0")
 		events.log(runID, "failure_target", "replica0")
@@ -553,6 +640,59 @@ func injectFailure(cfg labcfg.Run, runID string, phaseStart time.Time, events *e
 		}
 		events.log(runID, "restart_confirmed", container)
 	}
+}
+
+// injectElectionFailure implements the election-failure experiment: kill the
+// current leader, then isolate the remaining replicas' Raft transport for
+// FailedElections*election_timeout so the next election attempt(s) fail.
+// The isolation expires automatically, after which a successful election
+// restores service. The ACTUAL number of failed elections is measured from
+// the leader-election log transitions (events.csv), not assumed.
+func injectElectionFailure(cfg labcfg.Run, runID string, events *eventLog) {
+	cli, err := dialMasterRPC(20)
+	if err != nil {
+		events.log(runID, "failure_error", "master unreachable: "+err.Error())
+		return
+	}
+	leader := masterLeader(cli)
+	if leader < 0 {
+		events.log(runID, "failure_error", "no leader reported at injection time")
+		return
+	}
+	host := masterReplicaHost(cli, leader)
+	if host == "" {
+		events.log(runID, "failure_error", "could not map leader index to host")
+		return
+	}
+	events.log(runID, "failure_target", fmt.Sprintf("leader replica%d (%s)", leader, host))
+
+	// Kill the leader so an election is triggered.
+	container := containerName(runID, host)
+	events.log(runID, "failure_injected", container)
+	if err := killContainer(container); err != nil {
+		events.log(runID, "failure_error", err.Error())
+		return
+	}
+	events.log(runID, "failure_confirmed", container)
+
+	// Isolate the surviving replicas' transports for the target number of
+	// failed elections. Each failed election attempt takes roughly one
+	// election timeout.
+	isoMS := int64(cfg.Failure.FailedElections) * int64(cfg.RaftElectionMS)
+	if isoMS <= 0 {
+		events.log(runID, "election_isolation", "0ms (no failed elections targeted)")
+		return
+	}
+	events.log(runID, "election_isolation_start", fmt.Sprintf("%dms for %d failed elections", isoMS, cfg.Failure.FailedElections))
+	for i := 0; i < cfg.Replicas; i++ {
+		if i == leader {
+			continue
+		}
+		if err := isolateReplica(i, isoMS); err != nil {
+			events.log(runID, "election_isolation_error", fmt.Sprintf("replica%d: %v", i, err))
+		}
+	}
+	events.log(runID, "election_isolation_confirmed", fmt.Sprintf("%d replicas isolated for %dms", cfg.Replicas-1, isoMS))
 }
 
 func pickFollower(n, leader int) int {

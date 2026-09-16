@@ -36,3 +36,18 @@ type StatsReply struct {
 	// (EPaxos: non-equal replies plus dependency-set mismatches).
 	Conflicted int64
 }
+
+// IsolateArgs/IsolateReply control the lab's election-failure injection for
+// Raft. The runner asks every non-leader replica to isolate its Raft
+// transport (drop RequestVote/RequestPreVote) for a duration, causing the
+// next election attempt(s) to fail. HashiCorp Raft's election algorithm is
+// not modified; the injection only makes the transport unreachable for
+// votes, which is a fault-injection hook around the existing mechanism.
+type IsolateArgs struct {
+	// DurationMS is how long the transport stays isolated (0 = clear).
+	DurationMS int64
+}
+
+type IsolateReply struct {
+	OK bool
+}

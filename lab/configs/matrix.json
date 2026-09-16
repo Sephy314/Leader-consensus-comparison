@@ -36,11 +36,30 @@
     "write_pct": 100,
     "concurrency": 32
   },
+  "conflict": {
+    "protocols": ["raft", "epaxos"],
+    "replicas": 3,
+    "write_pct": 100,
+    "concurrency": 32,
+    "conflict_pcts": [0, 10, 25, 50, 75, 90, 100]
+  },
+  "concurrency": {
+    "protocols": ["raft", "epaxos"],
+    "replicas": 3,
+    "write_pct": 100,
+    "concurrencies": [1, 2, 4, 8, 16, 32, 64, 128, 256]
+  },
   "failure": {
     "cases": [
       {"protocol": "raft",   "mode": "leader",   "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0},
       {"protocol": "raft",   "mode": "follower", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0},
-      {"protocol": "epaxos", "mode": "replica",  "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0}
+      {"protocol": "epaxos", "mode": "replica",  "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 0},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 1},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 2},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 3},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 4},
+      {"protocol": "raft",   "mode": "election", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 15, "restart_after_s": 0, "failed_elections": 5}
     ]
   }
 }

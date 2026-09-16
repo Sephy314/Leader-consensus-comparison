@@ -97,6 +97,10 @@ func renderCompose(dir string, cfg labcfg.Run, runID string) (string, error) {
 		fmt.Fprintf(&svc, "    command: %s\n", yamlList(model.ReplicaCmds[i]))
 		fmt.Fprintf(&svc, "    cpus: %v\n", model.ReplicaCPUs)
 		fmt.Fprintf(&svc, "    mem_limit: %dm\n", model.ReplicaMemMB)
+		// Expose each replica's admin RPC (clientPort+1000) on a host port so
+		// the runner can inject failures (IsolateElections) and query Stats
+		// from the host. Runs are sequential, so fixed ports are safe.
+		fmt.Fprintf(&svc, "    ports:\n      - \"127.0.0.1:%d:%d\"\n", replicaAdminHostPort(i), 8070)
 		if model.DataVolumes {
 			fmt.Fprintf(&svc, "    volumes:\n      - raftdata%d:/data\n", i)
 		}
@@ -130,6 +134,12 @@ func renderCompose(dir string, cfg labcfg.Run, runID string) (string, error) {
 // masterHostPort is a fixed host port for the master so the runner can poll
 // the master RPC from the host. Runs are executed sequentially.
 const masterHostPort = "17087"
+
+// replicaAdminHostPort returns the host port exposing replica i's admin RPC
+// (clientPort+1000 = 8070 inside the container).
+func replicaAdminHostPort(i int) int {
+	return 18070 + i
+}
 
 func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, error) {
 	resultsAbs, err := filepath.Abs(dir)

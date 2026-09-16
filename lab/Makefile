@@ -8,7 +8,7 @@ IMAGE   ?= conslab:lab
 RUNNER  := ./bin/runner
 PY      ?= .venv/bin/python
 
-.PHONY: help build image smoke run matrix report html open-report validate figures check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix report html open-report validate test figures check-upstream tidy upstream-hash clean clean-results
 
 help:
 	@echo "targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  report          process raw results + generate figures + HTML report"
 	@echo "  html            generate the HTML report from already-processed results"
 	@echo "  validate        validate the HTML report against the underlying data"
+	@echo "  test            run Go unit tests + Python pipeline tests"
 	@echo "  open-report     open the HTML report in the default browser (optional)"
 	@echo "  figures         generate figures only"
 	@echo "  check-upstream  verify vendored wire protocol matches upstream"
@@ -53,6 +54,11 @@ html:
 
 validate:
 	$(PY) report/validate_html.py --report results/report/index.html --processed results/processed --raw results/raw --figures results/figures
+
+# Go unit tests + Python pipeline tests.
+test:
+	$(GO) test ./...
+	$(PY) -m unittest report.test_pipeline
 
 # Optional: open the report in the default browser (portable on macOS/Linux).
 open-report:

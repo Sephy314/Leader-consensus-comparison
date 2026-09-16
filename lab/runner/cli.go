@@ -36,10 +36,12 @@ func cmdRun(args []string) error {
 
 // MatrixSpec is the compact description of the full experiment matrix.
 type MatrixSpec struct {
-	Defaults labcfg.Run     `json:"defaults"`
-	Workload *WorkloadSpec  `json:"workload"`
-	Scaling  *ScalingSpec   `json:"scaling"`
-	Failure  *FailureMatrix `json:"failure"`
+	Defaults    labcfg.Run     `json:"defaults"`
+	Workload    *WorkloadSpec  `json:"workload"`
+	Scaling     *ScalingSpec   `json:"scaling"`
+	Conflict    *ConflictSpec  `json:"conflict"`
+	Concurrency *ConcSpec      `json:"concurrency"`
+	Failure     *FailureMatrix `json:"failure"`
 }
 
 type WorkloadSpec struct {
@@ -56,18 +58,38 @@ type ScalingSpec struct {
 	Protocols   []string `json:"protocols"`
 }
 
+// ConflictSpec is the conflict-rate sensitivity experiment: vary the
+// fraction of requests targeting shared hot keys.
+type ConflictSpec struct {
+	ConflictPcts []int    `json:"conflict_pcts"`
+	Protocols    []string `json:"protocols"`
+	Replicas     int      `json:"replicas"`
+	WritePct     int      `json:"write_pct"`
+	Concurrency  int      `json:"concurrency"`
+}
+
+// ConcSpec is the write-concurrency scaling experiment: vary concurrency
+// under a write-heavy workload.
+type ConcSpec struct {
+	Concurrencies []int    `json:"concurrencies"`
+	Protocols     []string `json:"protocols"`
+	Replicas      int      `json:"replicas"`
+	WritePct      int      `json:"write_pct"`
+}
+
 type FailureMatrix struct {
 	Cases []FailureCase `json:"cases"`
 }
 
 type FailureCase struct {
-	Protocol      string             `json:"protocol"`
-	Mode          labcfg.FailureMode `json:"mode"`
-	Replicas      int                `json:"replicas"`
-	WritePct      int                `json:"write_pct"`
-	Concurrency   int                `json:"concurrency"`
-	AtS           float64            `json:"at_s"`
-	RestartAfterS float64            `json:"restart_after_s"`
+	Protocol       string             `json:"protocol"`
+	Mode           labcfg.FailureMode `json:"mode"`
+	Replicas       int                `json:"replicas"`
+	WritePct       int                `json:"write_pct"`
+	Concurrency    int                `json:"concurrency"`
+	AtS            float64            `json:"at_s"`
+	RestartAfterS  float64            `json:"restart_after_s"`
+	FailedElections int               `json:"failed_elections"`
 }
 
 func cmdMatrix(args []string) error {
@@ -139,6 +161,35 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			}
 		}
 	}
+	if spec.Conflict != nil && (only == "" || only == "conflict") {
+		for _, proto := range spec.Conflict.Protocols {
+			for _, pct := range spec.Conflict.ConflictPcts {
+				cfg := base
+				cfg.Protocol = proto
+				cfg.Replicas = spec.Conflict.Replicas
+				cfg.WritePct = spec.Conflict.WritePct
+				cfg.ReadPct = 100 - spec.Conflict.WritePct
+				cfg.Concurrency = spec.Conflict.Concurrency
+				cfg.ConflictPct = pct
+				cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+				out = append(out, cfg)
+			}
+		}
+	}
+	if spec.Concurrency != nil && (only == "" || only == "concurrency") {
+		for _, proto := range spec.Concurrency.Protocols {
+			for _, c := range spec.Concurrency.Concurrencies {
+				cfg := base
+				cfg.Protocol = proto
+				cfg.Replicas = spec.Concurrency.Replicas
+				cfg.WritePct = spec.Concurrency.WritePct
+				cfg.ReadPct = 100 - spec.Concurrency.WritePct
+				cfg.Concurrency = c
+				cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+				out = append(out, cfg)
+			}
+		}
+	}
 	if spec.Failure != nil && (only == "" || only == "failure") {
 		for _, c := range spec.Failure.Cases {
 			cfg := base
@@ -147,7 +198,7 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			cfg.WritePct = c.WritePct
 			cfg.ReadPct = 100 - c.WritePct
 			cfg.Concurrency = c.Concurrency
-			cfg.Failure = labcfg.Failure{Mode: c.Mode, AtS: c.AtS, RestartAfterS: c.RestartAfterS}
+			cfg.Failure = labcfg.Failure{Mode: c.Mode, AtS: c.AtS, RestartAfterS: c.RestartAfterS, FailedElections: c.FailedElections}
 			out = append(out, cfg)
 		}
 	}

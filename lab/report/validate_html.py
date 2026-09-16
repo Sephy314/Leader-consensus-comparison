@@ -58,11 +58,22 @@ def main():
         html = f.read()
     print(f"report: {args.report} ({size} bytes)")
 
-    # 2. Expected sections.
-    for section in ("summary", "config", "workload", "scaling", "failure",
-                    "resources", "figures", "runs", "repro", "limitations"):
+    # 2. Expected sections. Sections that depend on data (failure, resources)
+    # are only required when the underlying data exists; the generator omits
+    # them otherwise.
+    for section in ("summary", "config", "workload", "scaling",
+                    "figures", "runs", "repro", "limitations"):
         if f'id="{section}"' not in html:
             errors.append(f"missing section #{section}")
+
+    if os.path.exists(os.path.join(args.processed, "failures.json")):
+        failures = load_json(os.path.join(args.processed, "failures.json"))
+        if failures and 'id="failure"' not in html:
+            errors.append("missing section #failure (failure data exists)")
+    if os.path.exists(os.path.join(args.processed, "resources.csv")):
+        resources = read_csv(os.path.join(args.processed, "resources.csv"))
+        if resources and 'id="resources"' not in html:
+            errors.append("missing section #resources (resource data exists)")
 
     # 3. Summary consistency with underlying data.
     run_index = load_json(os.path.join(args.processed, "run-index.json"))

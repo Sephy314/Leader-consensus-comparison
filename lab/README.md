@@ -124,21 +124,57 @@ Run one experiment independently:
 - **Workload**: 100R/0W, 90R/10W, 50R/50W, 10R/90W, 0R/100W × concurrency
   1,2,4,8,16,32,64,128 × Raft, EPaxos × 3 repetitions.
 - **Scaling**: 3,5,7,9 replicas, 100% write, both protocols.
+- **Conflict-rate sensitivity**: 0,10,25,50,75,90,100% of requests targeting
+  shared hot keys, 100% write, both protocols. The realized hot-key fraction
+  is recorded per request, so the actual conflict rate is measurable. For
+  EPaxos the upstream's fast/slow path counters are instrumented and exposed
+  over RPC (`stats.json` per run).
+- **Write-concurrency scaling**: concurrency 1..256, 100% write, both
+  protocols, with per-node CPU distribution from `resources.csv`.
+- **Election-failure recovery**: Raft leader killed, then the surviving
+  replicas' Raft transport is isolated for `failed_elections ×
+  election_timeout` so the next election attempt(s) fail. The injection is a
+  fault hook around the existing transport (`IsolateElections` RPC);
+  HashiCorp Raft's election algorithm is not modified. The actual recovery
+  time is measured from the leader-election log transitions.
 - **Failure**: Raft leader failure, Raft follower failure, EPaxos replica
   failure, under sustained write load.
 
-Every run records `metadata.json` (exact config, versions, host), raw
-`requests.csv` (per-request metadata), raw `resources.csv` (per-replica
-samples), and `events.csv` (failure/leader/phase timeline). Failed runs are
-recorded in `results/run-index.csv` and never silently discarded.
+Every run records `metadata.json` (exact config, versions, host,
+read-semantics), raw `requests.csv` (per-request metadata), raw
+`resources.csv` (per-replica samples), and `events.csv` (failure/leader/phase
+timeline). Failed runs are recorded in `results/run-index.csv` and never
+silently discarded.
+
+## Tests
+
+```sh
+make test
+```
+
+Runs the Go unit tests and the Python pipeline tests:
+
+- `client/` — conflict-rate workload generation (realized hot-key fraction
+  matches the configured rate; hot/cold ranges are disjoint).
+- `internal/labcfg/` — configuration validation (conflict/hot-keys ranges,
+  election-failure requirements, workload percentages, replica counts).
+- `runner/` — experiment classification, run-ID uniqueness, default filling,
+  read-semantics metadata.
+- `adapters/raft/` — FSM PUT/GET and snapshot/restore round-trip, and the
+  election-failure transport isolation (votes dropped while isolated,
+  isolation expiry, RPC handlers).
+- `report/test_pipeline.py` — end-to-end process → html → validate on a
+  synthetic dataset (no benchmark data required).
 
 ## Fairness controls
 
 All containers share one image and identical CPU/memory allocations.
 `GOMAXPROCS` is identical for every replica in both protocols. Reads are
 routed through consensus in both protocols (no Raft local-read
-optimization). Protocol integration details that differ are recorded in each
-run's `metadata.json` under `notes`.
+optimization); the read semantics of each protocol are recorded in
+`metadata.json` under `read_semantics` and shown in the HTML report. Protocol
+integration details that differ are recorded in each run's `metadata.json`
+under `notes`.
 
 ## Provenance
 
