@@ -157,11 +157,11 @@ If a run fails, its status is `failed` with the reason recorded. Figures are
 only produced for experiments with valid data. The lab never fills in
 missing values or draws conclusions.
 
-## Known limitation: EPaxos cluster size
+## Dependency-set size (DS = 9)
 
-The vendored `efficient/epaxos` implementation hardcodes its dependency-set
-size to 5 (`const DS = 5`), including in the inter-replica wire format. It
-therefore cannot run clusters larger than 5 replicas: 7- and 9-replica EPaxos
-runs panic inside the upstream consensus code and are recorded as failed
-runs. The lab does not modify the upstream consensus path, so this limit is
-documented rather than patched. See `docs/experiment-design.md`.
+The vendored `efficient/epaxos` hardcodes its dependency-set size to 5,
+including in the inter-replica wire format, which limits a cluster to 5
+replicas. The lab extends it to 9 so that 7- and 9-replica clusters work.
+This is a wire-format extension, not a consensus change: the protocol's
+phases, quorums, and decision rules are untouched, and all replicas in a
+cluster run the same patched binary. See `upstream/epaxos/UPSTREAM.md`.

@@ -172,18 +172,39 @@ func cmdVersion(name string, args ...string) string {
 }
 
 // runIDFor builds a stable run identifier from a configuration.
+// runIDFor builds a stable run identifier from a configuration. The
+// identifier encodes every independent variable needed to distinguish two
+// runs of the same experiment, so different configurations never collide.
 func runIDFor(cfg labcfg.Run, rep int) string {
 	experiment := experimentName(cfg)
-	if cfg.Failure.Mode != labcfg.FailureNone {
+	switch experiment {
+	case "failure":
+		if cfg.Failure.Mode == labcfg.FailureElection {
+			return fmt.Sprintf("%s-%s-%s-r%d-e%d-%d", experiment, cfg.Failure.Mode, cfg.Protocol, cfg.Replicas, cfg.Failure.FailedElections, rep)
+		}
 		return fmt.Sprintf("%s-%s-%s-r%d-%d", experiment, cfg.Failure.Mode, cfg.Protocol, cfg.Replicas, rep)
+	case "conflict":
+		return fmt.Sprintf("%s-%s-r%d-x%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.ConflictPct, cfg.WritePct, cfg.Concurrency, rep)
+	case "concurrency":
+		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
+	case "pernode":
+		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
+	default:
+		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
 	}
-	return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
 }
 
-// experimentName classifies a configuration into an experiment family.
+// experimentName returns the experiment family of a configuration. An
+// explicit Experiment field wins; otherwise it is derived.
 func experimentName(cfg labcfg.Run) string {
+	if cfg.Experiment != "" {
+		return cfg.Experiment
+	}
 	if cfg.Failure.Mode != labcfg.FailureNone {
 		return "failure"
+	}
+	if cfg.ConflictPct > 0 {
+		return "conflict"
 	}
 	if cfg.Replicas != 3 {
 		return "scaling"

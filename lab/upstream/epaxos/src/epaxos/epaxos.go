@@ -19,7 +19,7 @@ import (
 const MAX_DEPTH_DEP = 10
 const TRUE = uint8(1)
 const FALSE = uint8(0)
-const DS = 5
+const DS = 9
 const ADAPT_TIME_SEC = 10
 
 const MAX_BATCH = 1000
@@ -135,7 +135,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		make([][]*Instance, len(peerAddrList)),
 		make([]int32, len(peerAddrList)),
-		[DS]int32{-1, -1, -1, -1, -1},
+		[DS]int32{-1, -1, -1, -1, -1, -1, -1, -1, -1},
 		make([]int32, len(peerAddrList)),
 		nil,
 		make([]map[state.Key]int32, len(peerAddrList)),
@@ -842,7 +842,7 @@ func (r *Replica) startPhase1(replica int32, instance int32, ballot int32, propo
 		epaxosproto.PREACCEPTED,
 		seq,
 		deps,
-		&LeaderBookkeeping{proposals, 0, 0, true, 0, 0, 0, deps, []int32{-1, -1, -1, -1, -1}, nil, false, false, nil, 0}, 0, 0,
+		&LeaderBookkeeping{proposals, 0, 0, true, 0, 0, 0, deps, []int32{-1, -1, -1, -1, -1, -1, -1, -1, -1}, nil, false, false, nil, 0}, 0, 0,
 		nil}
 
 	r.updateConflicts(cmds, r.Id, instance, seq)
@@ -878,7 +878,7 @@ func (r *Replica) startPhase1(replica int32, instance int32, ballot int32, propo
 			epaxosproto.PREACCEPTED,
 			r.maxSeq,
 			deps,
-			&LeaderBookkeeping{nil, 0, 0, true, 0, 0, 0, deps, nil, nil, false, false, nil, 0},
+			&LeaderBookkeeping{nil, 0, 0, true, 0, 0, 0, deps, []int32{-1, -1, -1, -1, -1, -1, -1, -1, -1}, nil, false, false, nil, 0},
 			0,
 			0,
 			nil}

@@ -54,7 +54,7 @@ func (p *TryPreAccept) New() fastrpc.Serializable {
 }
 
 func (t *TryPreAccept) Marshal(wire io.Writer) {
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:16]
 	tmp32 := t.LeaderId
@@ -116,6 +116,26 @@ func (t *TryPreAccept) Marshal(wire io.Writer) {
 	bs[21] = byte(tmp32 >> 8)
 	bs[22] = byte(tmp32 >> 16)
 	bs[23] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[24] = byte(tmp32)
+	bs[25] = byte(tmp32 >> 8)
+	bs[26] = byte(tmp32 >> 16)
+	bs[27] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[28] = byte(tmp32)
+	bs[29] = byte(tmp32 >> 8)
+	bs[30] = byte(tmp32 >> 16)
+	bs[31] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[32] = byte(tmp32)
+	bs[33] = byte(tmp32 >> 8)
+	bs[34] = byte(tmp32 >> 16)
+	bs[35] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[36] = byte(tmp32)
+	bs[37] = byte(tmp32 >> 8)
+	bs[38] = byte(tmp32 >> 16)
+	bs[39] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
@@ -125,7 +145,7 @@ func (t *TryPreAccept) Unmarshal(rr io.Reader) error {
 	if wire, ok = rr.(byteReader); !ok {
 		wire = bufio.NewReader(rr)
 	}
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:16]
 	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
@@ -143,8 +163,8 @@ func (t *TryPreAccept) Unmarshal(rr io.Reader) error {
 	for i := int64(0); i < alen1; i++ {
 		t.Command[i].Unmarshal(wire)
 	}
-	bs = b[:24]
-	if _, err := io.ReadAtLeast(wire, bs, 24); err != nil {
+	bs = b[:40]
+	if _, err := io.ReadAtLeast(wire, bs, 40); err != nil {
 		return err
 	}
 	t.Seq = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -153,11 +173,15 @@ func (t *TryPreAccept) Unmarshal(rr io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
 	t.Deps[3] = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
 	t.Deps[4] = int32((uint32(bs[20]) | (uint32(bs[21]) << 8) | (uint32(bs[22]) << 16) | (uint32(bs[23]) << 24)))
+	t.Deps[5] = int32((uint32(bs[24]) | (uint32(bs[25]) << 8) | (uint32(bs[26]) << 16) | (uint32(bs[27]) << 24)))
+	t.Deps[6] = int32((uint32(bs[28]) | (uint32(bs[29]) << 8) | (uint32(bs[30]) << 16) | (uint32(bs[31]) << 24)))
+	t.Deps[7] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
+	t.Deps[8] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
 	return nil
 }
 
 func (t *PreAcceptReply) BinarySize() (nbytes int, sizeKnown bool) {
-	return 57, true
+	return 73, true
 }
 
 type PreAcceptReplyCache struct {
@@ -196,9 +220,9 @@ func (p *PreAcceptReply) New() fastrpc.Serializable {
 }
 
 func (t *PreAcceptReply) Marshal(wire io.Writer) {
-	var b [57]byte
+	var b [73]byte
 	var bs []byte
-	bs = b[:57]
+	bs = b[:73]
 	tmp32 := t.Replica
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -245,6 +269,26 @@ func (t *PreAcceptReply) Marshal(wire io.Writer) {
 	bs[34] = byte(tmp32 >> 8)
 	bs[35] = byte(tmp32 >> 16)
 	bs[36] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[37] = byte(tmp32)
+	bs[38] = byte(tmp32 >> 8)
+	bs[39] = byte(tmp32 >> 16)
+	bs[40] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[41] = byte(tmp32)
+	bs[42] = byte(tmp32 >> 8)
+	bs[43] = byte(tmp32 >> 16)
+	bs[44] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[45] = byte(tmp32)
+	bs[46] = byte(tmp32 >> 8)
+	bs[47] = byte(tmp32 >> 16)
+	bs[48] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[49] = byte(tmp32)
+	bs[50] = byte(tmp32 >> 8)
+	bs[51] = byte(tmp32 >> 16)
+	bs[52] = byte(tmp32 >> 24)
 	tmp32 = t.CommittedDeps[0]
 	bs[37] = byte(tmp32)
 	bs[38] = byte(tmp32 >> 8)
@@ -270,14 +314,34 @@ func (t *PreAcceptReply) Marshal(wire io.Writer) {
 	bs[54] = byte(tmp32 >> 8)
 	bs[55] = byte(tmp32 >> 16)
 	bs[56] = byte(tmp32 >> 24)
+	tmp32 = t.CommittedDeps[5]
+	bs[57] = byte(tmp32)
+	bs[58] = byte(tmp32 >> 8)
+	bs[59] = byte(tmp32 >> 16)
+	bs[60] = byte(tmp32 >> 24)
+	tmp32 = t.CommittedDeps[6]
+	bs[61] = byte(tmp32)
+	bs[62] = byte(tmp32 >> 8)
+	bs[63] = byte(tmp32 >> 16)
+	bs[64] = byte(tmp32 >> 24)
+	tmp32 = t.CommittedDeps[7]
+	bs[65] = byte(tmp32)
+	bs[66] = byte(tmp32 >> 8)
+	bs[67] = byte(tmp32 >> 16)
+	bs[68] = byte(tmp32 >> 24)
+	tmp32 = t.CommittedDeps[8]
+	bs[69] = byte(tmp32)
+	bs[70] = byte(tmp32 >> 8)
+	bs[71] = byte(tmp32 >> 16)
+	bs[72] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
 func (t *PreAcceptReply) Unmarshal(wire io.Reader) error {
-	var b [57]byte
+	var b [73]byte
 	var bs []byte
-	bs = b[:57]
-	if _, err := io.ReadAtLeast(wire, bs, 57); err != nil {
+	bs = b[:73]
+	if _, err := io.ReadAtLeast(wire, bs, 73); err != nil {
 		return err
 	}
 	t.Replica = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -290,11 +354,19 @@ func (t *PreAcceptReply) Unmarshal(wire io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[25]) | (uint32(bs[26]) << 8) | (uint32(bs[27]) << 16) | (uint32(bs[28]) << 24)))
 	t.Deps[3] = int32((uint32(bs[29]) | (uint32(bs[30]) << 8) | (uint32(bs[31]) << 16) | (uint32(bs[32]) << 24)))
 	t.Deps[4] = int32((uint32(bs[33]) | (uint32(bs[34]) << 8) | (uint32(bs[35]) << 16) | (uint32(bs[36]) << 24)))
+	t.Deps[5] = int32((uint32(bs[37]) | (uint32(bs[38]) << 8) | (uint32(bs[39]) << 16) | (uint32(bs[40]) << 24)))
+	t.Deps[6] = int32((uint32(bs[41]) | (uint32(bs[42]) << 8) | (uint32(bs[43]) << 16) | (uint32(bs[44]) << 24)))
+	t.Deps[7] = int32((uint32(bs[45]) | (uint32(bs[46]) << 8) | (uint32(bs[47]) << 16) | (uint32(bs[48]) << 24)))
+	t.Deps[8] = int32((uint32(bs[49]) | (uint32(bs[50]) << 8) | (uint32(bs[51]) << 16) | (uint32(bs[52]) << 24)))
 	t.CommittedDeps[0] = int32((uint32(bs[37]) | (uint32(bs[38]) << 8) | (uint32(bs[39]) << 16) | (uint32(bs[40]) << 24)))
 	t.CommittedDeps[1] = int32((uint32(bs[41]) | (uint32(bs[42]) << 8) | (uint32(bs[43]) << 16) | (uint32(bs[44]) << 24)))
 	t.CommittedDeps[2] = int32((uint32(bs[45]) | (uint32(bs[46]) << 8) | (uint32(bs[47]) << 16) | (uint32(bs[48]) << 24)))
 	t.CommittedDeps[3] = int32((uint32(bs[49]) | (uint32(bs[50]) << 8) | (uint32(bs[51]) << 16) | (uint32(bs[52]) << 24)))
 	t.CommittedDeps[4] = int32((uint32(bs[53]) | (uint32(bs[54]) << 8) | (uint32(bs[55]) << 16) | (uint32(bs[56]) << 24)))
+	t.CommittedDeps[5] = int32((uint32(bs[57]) | (uint32(bs[58]) << 8) | (uint32(bs[59]) << 16) | (uint32(bs[60]) << 24)))
+	t.CommittedDeps[6] = int32((uint32(bs[61]) | (uint32(bs[62]) << 8) | (uint32(bs[63]) << 16) | (uint32(bs[64]) << 24)))
+	t.CommittedDeps[7] = int32((uint32(bs[65]) | (uint32(bs[66]) << 8) | (uint32(bs[67]) << 16) | (uint32(bs[68]) << 24)))
+	t.CommittedDeps[8] = int32((uint32(bs[69]) | (uint32(bs[70]) << 8) | (uint32(bs[71]) << 16) | (uint32(bs[72]) << 24)))
 	return nil
 }
 
@@ -395,7 +467,7 @@ func (t *TryPreAcceptReply) Unmarshal(wire io.Reader) error {
 }
 
 func (t *CommitShort) BinarySize() (nbytes int, sizeKnown bool) {
-	return 40, true
+	return 56, true
 }
 
 type CommitShortCache struct {
@@ -434,9 +506,9 @@ func (p *CommitShort) New() fastrpc.Serializable {
 }
 
 func (t *CommitShort) Marshal(wire io.Writer) {
-	var b [40]byte
+	var b [56]byte
 	var bs []byte
-	bs = b[:40]
+	bs = b[:56]
 	tmp32 := t.LeaderId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -487,14 +559,34 @@ func (t *CommitShort) Marshal(wire io.Writer) {
 	bs[37] = byte(tmp32 >> 8)
 	bs[38] = byte(tmp32 >> 16)
 	bs[39] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[40] = byte(tmp32)
+	bs[41] = byte(tmp32 >> 8)
+	bs[42] = byte(tmp32 >> 16)
+	bs[43] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[44] = byte(tmp32)
+	bs[45] = byte(tmp32 >> 8)
+	bs[46] = byte(tmp32 >> 16)
+	bs[47] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[48] = byte(tmp32)
+	bs[49] = byte(tmp32 >> 8)
+	bs[50] = byte(tmp32 >> 16)
+	bs[51] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[52] = byte(tmp32)
+	bs[53] = byte(tmp32 >> 8)
+	bs[54] = byte(tmp32 >> 16)
+	bs[55] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
 func (t *CommitShort) Unmarshal(wire io.Reader) error {
-	var b [40]byte
+	var b [56]byte
 	var bs []byte
-	bs = b[:40]
-	if _, err := io.ReadAtLeast(wire, bs, 40); err != nil {
+	bs = b[:56]
+	if _, err := io.ReadAtLeast(wire, bs, 56); err != nil {
 		return err
 	}
 	t.LeaderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -507,6 +599,10 @@ func (t *CommitShort) Unmarshal(wire io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[28]) | (uint32(bs[29]) << 8) | (uint32(bs[30]) << 16) | (uint32(bs[31]) << 24)))
 	t.Deps[3] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
 	t.Deps[4] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
+	t.Deps[5] = int32((uint32(bs[40]) | (uint32(bs[41]) << 8) | (uint32(bs[42]) << 16) | (uint32(bs[43]) << 24)))
+	t.Deps[6] = int32((uint32(bs[44]) | (uint32(bs[45]) << 8) | (uint32(bs[46]) << 16) | (uint32(bs[47]) << 24)))
+	t.Deps[7] = int32((uint32(bs[48]) | (uint32(bs[49]) << 8) | (uint32(bs[50]) << 16) | (uint32(bs[51]) << 24)))
+	t.Deps[8] = int32((uint32(bs[52]) | (uint32(bs[53]) << 8) | (uint32(bs[54]) << 16) | (uint32(bs[55]) << 24)))
 	return nil
 }
 
@@ -550,7 +646,7 @@ func (p *PreAccept) New() fastrpc.Serializable {
 }
 
 func (t *PreAccept) Marshal(wire io.Writer) {
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:16]
 	tmp32 := t.LeaderId
@@ -612,6 +708,26 @@ func (t *PreAccept) Marshal(wire io.Writer) {
 	bs[21] = byte(tmp32 >> 8)
 	bs[22] = byte(tmp32 >> 16)
 	bs[23] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[24] = byte(tmp32)
+	bs[25] = byte(tmp32 >> 8)
+	bs[26] = byte(tmp32 >> 16)
+	bs[27] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[28] = byte(tmp32)
+	bs[29] = byte(tmp32 >> 8)
+	bs[30] = byte(tmp32 >> 16)
+	bs[31] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[32] = byte(tmp32)
+	bs[33] = byte(tmp32 >> 8)
+	bs[34] = byte(tmp32 >> 16)
+	bs[35] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[36] = byte(tmp32)
+	bs[37] = byte(tmp32 >> 8)
+	bs[38] = byte(tmp32 >> 16)
+	bs[39] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
@@ -621,7 +737,7 @@ func (t *PreAccept) Unmarshal(rr io.Reader) error {
 	if wire, ok = rr.(byteReader); !ok {
 		wire = bufio.NewReader(rr)
 	}
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:16]
 	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
@@ -639,8 +755,8 @@ func (t *PreAccept) Unmarshal(rr io.Reader) error {
 	for i := int64(0); i < alen1; i++ {
 		t.Command[i].Unmarshal(wire)
 	}
-	bs = b[:24]
-	if _, err := io.ReadAtLeast(wire, bs, 24); err != nil {
+	bs = b[:40]
+	if _, err := io.ReadAtLeast(wire, bs, 40); err != nil {
 		return err
 	}
 	t.Seq = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -649,6 +765,10 @@ func (t *PreAccept) Unmarshal(rr io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
 	t.Deps[3] = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
 	t.Deps[4] = int32((uint32(bs[20]) | (uint32(bs[21]) << 8) | (uint32(bs[22]) << 16) | (uint32(bs[23]) << 24)))
+	t.Deps[5] = int32((uint32(bs[24]) | (uint32(bs[25]) << 8) | (uint32(bs[26]) << 16) | (uint32(bs[27]) << 24)))
+	t.Deps[6] = int32((uint32(bs[28]) | (uint32(bs[29]) << 8) | (uint32(bs[30]) << 16) | (uint32(bs[31]) << 24)))
+	t.Deps[7] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
+	t.Deps[8] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
 	return nil
 }
 
@@ -754,7 +874,7 @@ func (p *PrepareReply) New() fastrpc.Serializable {
 }
 
 func (t *PrepareReply) Marshal(wire io.Writer) {
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:18]
 	tmp32 := t.AcceptorId
@@ -818,6 +938,26 @@ func (t *PrepareReply) Marshal(wire io.Writer) {
 	bs[21] = byte(tmp32 >> 8)
 	bs[22] = byte(tmp32 >> 16)
 	bs[23] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[24] = byte(tmp32)
+	bs[25] = byte(tmp32 >> 8)
+	bs[26] = byte(tmp32 >> 16)
+	bs[27] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[28] = byte(tmp32)
+	bs[29] = byte(tmp32 >> 8)
+	bs[30] = byte(tmp32 >> 16)
+	bs[31] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[32] = byte(tmp32)
+	bs[33] = byte(tmp32 >> 8)
+	bs[34] = byte(tmp32 >> 16)
+	bs[35] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[36] = byte(tmp32)
+	bs[37] = byte(tmp32 >> 8)
+	bs[38] = byte(tmp32 >> 16)
+	bs[39] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
@@ -827,7 +967,7 @@ func (t *PrepareReply) Unmarshal(rr io.Reader) error {
 	if wire, ok = rr.(byteReader); !ok {
 		wire = bufio.NewReader(rr)
 	}
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:18]
 	if _, err := io.ReadAtLeast(wire, bs, 18); err != nil {
@@ -847,8 +987,8 @@ func (t *PrepareReply) Unmarshal(rr io.Reader) error {
 	for i := int64(0); i < alen1; i++ {
 		t.Command[i].Unmarshal(wire)
 	}
-	bs = b[:24]
-	if _, err := io.ReadAtLeast(wire, bs, 24); err != nil {
+	bs = b[:40]
+	if _, err := io.ReadAtLeast(wire, bs, 40); err != nil {
 		return err
 	}
 	t.Seq = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -857,6 +997,10 @@ func (t *PrepareReply) Unmarshal(rr io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
 	t.Deps[3] = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
 	t.Deps[4] = int32((uint32(bs[20]) | (uint32(bs[21]) << 8) | (uint32(bs[22]) << 16) | (uint32(bs[23]) << 24)))
+	t.Deps[5] = int32((uint32(bs[24]) | (uint32(bs[25]) << 8) | (uint32(bs[26]) << 16) | (uint32(bs[27]) << 24)))
+	t.Deps[6] = int32((uint32(bs[28]) | (uint32(bs[29]) << 8) | (uint32(bs[30]) << 16) | (uint32(bs[31]) << 24)))
+	t.Deps[7] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
+	t.Deps[8] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
 	return nil
 }
 
@@ -900,7 +1044,7 @@ func (p *Commit) New() fastrpc.Serializable {
 }
 
 func (t *Commit) Marshal(wire io.Writer) {
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:12]
 	tmp32 := t.LeaderId
@@ -957,6 +1101,26 @@ func (t *Commit) Marshal(wire io.Writer) {
 	bs[21] = byte(tmp32 >> 8)
 	bs[22] = byte(tmp32 >> 16)
 	bs[23] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[24] = byte(tmp32)
+	bs[25] = byte(tmp32 >> 8)
+	bs[26] = byte(tmp32 >> 16)
+	bs[27] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[28] = byte(tmp32)
+	bs[29] = byte(tmp32 >> 8)
+	bs[30] = byte(tmp32 >> 16)
+	bs[31] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[32] = byte(tmp32)
+	bs[33] = byte(tmp32 >> 8)
+	bs[34] = byte(tmp32 >> 16)
+	bs[35] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[36] = byte(tmp32)
+	bs[37] = byte(tmp32 >> 8)
+	bs[38] = byte(tmp32 >> 16)
+	bs[39] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
@@ -966,7 +1130,7 @@ func (t *Commit) Unmarshal(rr io.Reader) error {
 	if wire, ok = rr.(byteReader); !ok {
 		wire = bufio.NewReader(rr)
 	}
-	var b [24]byte
+	var b [40]byte
 	var bs []byte
 	bs = b[:12]
 	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
@@ -983,8 +1147,8 @@ func (t *Commit) Unmarshal(rr io.Reader) error {
 	for i := int64(0); i < alen1; i++ {
 		t.Command[i].Unmarshal(wire)
 	}
-	bs = b[:24]
-	if _, err := io.ReadAtLeast(wire, bs, 24); err != nil {
+	bs = b[:40]
+	if _, err := io.ReadAtLeast(wire, bs, 40); err != nil {
 		return err
 	}
 	t.Seq = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -993,6 +1157,10 @@ func (t *Commit) Unmarshal(rr io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
 	t.Deps[3] = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
 	t.Deps[4] = int32((uint32(bs[20]) | (uint32(bs[21]) << 8) | (uint32(bs[22]) << 16) | (uint32(bs[23]) << 24)))
+	t.Deps[5] = int32((uint32(bs[24]) | (uint32(bs[25]) << 8) | (uint32(bs[26]) << 16) | (uint32(bs[27]) << 24)))
+	t.Deps[6] = int32((uint32(bs[28]) | (uint32(bs[29]) << 8) | (uint32(bs[30]) << 16) | (uint32(bs[31]) << 24)))
+	t.Deps[7] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
+	t.Deps[8] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
 	return nil
 }
 
@@ -1073,7 +1241,7 @@ func (t *AcceptReply) Unmarshal(wire io.Reader) error {
 }
 
 func (t *Accept) BinarySize() (nbytes int, sizeKnown bool) {
-	return 44, true
+	return 60, true
 }
 
 type AcceptCache struct {
@@ -1112,9 +1280,9 @@ func (p *Accept) New() fastrpc.Serializable {
 }
 
 func (t *Accept) Marshal(wire io.Writer) {
-	var b [44]byte
+	var b [60]byte
 	var bs []byte
-	bs = b[:44]
+	bs = b[:60]
 	tmp32 := t.LeaderId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -1170,14 +1338,34 @@ func (t *Accept) Marshal(wire io.Writer) {
 	bs[41] = byte(tmp32 >> 8)
 	bs[42] = byte(tmp32 >> 16)
 	bs[43] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[5]
+	bs[44] = byte(tmp32)
+	bs[45] = byte(tmp32 >> 8)
+	bs[46] = byte(tmp32 >> 16)
+	bs[47] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[6]
+	bs[48] = byte(tmp32)
+	bs[49] = byte(tmp32 >> 8)
+	bs[50] = byte(tmp32 >> 16)
+	bs[51] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[7]
+	bs[52] = byte(tmp32)
+	bs[53] = byte(tmp32 >> 8)
+	bs[54] = byte(tmp32 >> 16)
+	bs[55] = byte(tmp32 >> 24)
+	tmp32 = t.Deps[8]
+	bs[56] = byte(tmp32)
+	bs[57] = byte(tmp32 >> 8)
+	bs[58] = byte(tmp32 >> 16)
+	bs[59] = byte(tmp32 >> 24)
 	wire.Write(bs)
 }
 
 func (t *Accept) Unmarshal(wire io.Reader) error {
-	var b [44]byte
+	var b [60]byte
 	var bs []byte
-	bs = b[:44]
-	if _, err := io.ReadAtLeast(wire, bs, 44); err != nil {
+	bs = b[:60]
+	if _, err := io.ReadAtLeast(wire, bs, 60); err != nil {
 		return err
 	}
 	t.LeaderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
@@ -1191,6 +1379,10 @@ func (t *Accept) Unmarshal(wire io.Reader) error {
 	t.Deps[2] = int32((uint32(bs[32]) | (uint32(bs[33]) << 8) | (uint32(bs[34]) << 16) | (uint32(bs[35]) << 24)))
 	t.Deps[3] = int32((uint32(bs[36]) | (uint32(bs[37]) << 8) | (uint32(bs[38]) << 16) | (uint32(bs[39]) << 24)))
 	t.Deps[4] = int32((uint32(bs[40]) | (uint32(bs[41]) << 8) | (uint32(bs[42]) << 16) | (uint32(bs[43]) << 24)))
+	t.Deps[5] = int32((uint32(bs[44]) | (uint32(bs[45]) << 8) | (uint32(bs[46]) << 16) | (uint32(bs[47]) << 24)))
+	t.Deps[6] = int32((uint32(bs[48]) | (uint32(bs[49]) << 8) | (uint32(bs[50]) << 16) | (uint32(bs[51]) << 24)))
+	t.Deps[7] = int32((uint32(bs[52]) | (uint32(bs[53]) << 8) | (uint32(bs[54]) << 16) | (uint32(bs[55]) << 24)))
+	t.Deps[8] = int32((uint32(bs[56]) | (uint32(bs[57]) << 8) | (uint32(bs[58]) << 16) | (uint32(bs[59]) << 24)))
 	return nil
 }
 

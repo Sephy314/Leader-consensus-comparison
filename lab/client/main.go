@@ -49,6 +49,8 @@ var (
 	runID       = flag.String("run-id", "run", "run identifier")
 	seed        = flag.Int64("seed", 42, "random seed")
 	keyspace    = flag.Int("keyspace", 1000, "number of distinct keys")
+	conflictPct = flag.Int("conflict", 0, "percentage of requests that target the shared hot keys (conflict rate)")
+	hotKeys     = flag.Int("hot-keys", 1, "number of distinct hot keys contended on")
 	timeoutMS   = flag.Int("timeout-ms", 2000, "per-request timeout (ms)")
 	gomaxprocs  = flag.Int("gomaxprocs", 4, "GOMAXPROCS")
 )
@@ -60,11 +62,13 @@ type reqRecord struct {
 	readPct     int
 	writePct    int
 	concurrency int
+	conflictPct int
 	worker      int
 	seq         int64
 	requestID   int64
 	op          string
 	key         int64
+	hot         bool
 	target      int
 	startNS     int64
 	endNS       int64
@@ -85,6 +89,7 @@ type worker struct {
 	conn   *conn
 	target int
 	seq    int64
+	rand   *rand.Rand
 }
 
 type client struct {
@@ -92,7 +97,6 @@ type client struct {
 	master   *rpc.Client
 	replicas []string // "host:port" client addresses
 	leader   int
-	rand     *rand.Rand
 	records  chan reqRecord
 	wg       sync.WaitGroup
 }
@@ -110,6 +114,8 @@ type config struct {
 	runID       string
 	seed        int64
 	keyspace    int
+	conflictPct int
+	hotKeys     int
 	timeout     time.Duration
 }
 
@@ -130,14 +136,22 @@ func main() {
 		runID:       *runID,
 		seed:        *seed,
 		keyspace:    *keyspace,
+		conflictPct: *conflictPct,
+		hotKeys:     *hotKeys,
 		timeout:     time.Duration(*timeoutMS) * time.Millisecond,
+	}
+	if cfg.conflictPct < 0 || cfg.conflictPct > 100 {
+		log.Fatalf("conflict must be in [0,100], got %d", cfg.conflictPct)
+	}
+	if cfg.hotKeys < 1 || cfg.hotKeys > cfg.keyspace {
+		log.Fatalf("hot-keys must be in [1,%d], got %d", cfg.keyspace, cfg.hotKeys)
 	}
 
 	if err := os.MkdirAll(cfg.outDir, 0o755); err != nil {
 		log.Fatal(err)
 	}
 
-	c := &client{cfg: cfg, rand: rand.New(rand.NewSource(cfg.seed))}
+	c := &client{cfg: cfg}
 	c.master = dialMaster(cfg.masterAddr, cfg.masterPort)
 	c.replicas = c.getReplicaList()
 	c.leader = -1
@@ -186,7 +200,11 @@ func (c *client) runPhase(d time.Duration, record bool) {
 	deadline := time.Now().Add(d)
 	c.wg.Add(c.cfg.concurrency)
 	for i := 0; i < c.cfg.concurrency; i++ {
-		w := &worker{id: i, c: c}
+		// Each worker gets its own RNG, seeded deterministically from the
+		// run seed and the worker id. A shared RNG would be a data race
+		// (math/rand.Rand is not safe for concurrent use) and would make
+		// runs non-reproducible.
+		w := &worker{id: i, c: c, rand: rand.New(rand.NewSource(c.cfg.seed + int64(i)))}
 		if c.cfg.protocol == "raft" {
 			w.target = c.leader
 		} else {
@@ -202,10 +220,10 @@ func (w *worker) run(deadline time.Time, record bool) {
 	defer w.c.wg.Done()
 	for time.Now().Before(deadline) {
 		op := state.GET
-		if w.c.rand.Intn(100) < w.c.cfg.writePct {
+		if w.rand.Intn(100) < w.c.cfg.writePct {
 			op = state.PUT
 		}
-		key := w.c.rand.Int63n(int64(w.c.cfg.keyspace))
+		key, hot := w.c.pickKey(w.rand)
 		start := time.Now()
 		ok, errMsg := w.doRequest(op, key)
 		end := time.Now()
@@ -213,15 +231,33 @@ func (w *worker) run(deadline time.Time, record bool) {
 			w.c.records <- reqRecord{
 				runID: w.c.cfg.runID, protocol: w.c.cfg.protocol, replicas: w.c.cfg.replicas,
 				readPct: 100 - w.c.cfg.writePct, writePct: w.c.cfg.writePct,
-				concurrency: w.c.cfg.concurrency, worker: w.id, seq: w.seq,
+				concurrency: w.c.cfg.concurrency, conflictPct: w.c.cfg.conflictPct,
+				worker: w.id, seq: w.seq,
 				requestID: int64(w.id)*1_000_000_000 + w.seq,
-				op:        opName(op), key: key, target: w.target,
+				op:        opName(op), key: key, hot: hot, target: w.target,
 				startNS: start.UnixNano(), endNS: end.UnixNano(),
 				latencyNS: end.Sub(start).Nanoseconds(), ok: ok, errMsg: errMsg,
 			}
 		}
 		w.seq++
 	}
+}
+
+// pickKey implements the conflict-rate workload. With probability
+// conflictPct/100 the request targets one of the hotKeys shared keys; with
+// the remaining probability it targets a uniformly random key from the
+// disjoint cold range. Hot and cold ranges do not overlap, so the realized
+// hot-key fraction is an exact, measurable quantity rather than an
+// assumption about the RNG.
+func (c *client) pickKey(r *rand.Rand) (int64, bool) {
+	if c.cfg.conflictPct > 0 && r.Intn(100) < c.cfg.conflictPct {
+		return int64(r.Intn(c.cfg.hotKeys)), true
+	}
+	cold := c.cfg.keyspace - c.cfg.hotKeys
+	if cold <= 0 {
+		return int64(r.Intn(c.cfg.hotKeys)), true
+	}
+	return int64(c.cfg.hotKeys + r.Intn(cold)), false
 }
 
 func opName(op state.Operation) string {
@@ -404,13 +440,14 @@ func (c *client) writeCSV(done chan struct{}) {
 	w := csv.NewWriter(f)
 	w.Write([]string{
 		"run_id", "protocol", "replicas", "read_pct", "write_pct", "concurrency",
-		"worker", "seq", "request_id", "op", "key", "target",
+		"conflict_pct", "worker", "seq", "request_id", "op", "key", "hot", "target",
 		"start_ns", "end_ns", "latency_ns", "ok", "error",
 	})
 	for r := range c.records {
 		w.Write([]string{
 			r.runID, r.protocol, itoa(r.replicas), itoa(r.readPct), itoa(r.writePct), itoa(r.concurrency),
-			itoa(r.worker), itoa64(r.seq), itoa64(r.requestID), r.op, itoa64(r.key), itoa(r.target),
+			itoa(r.conflictPct), itoa(r.worker), itoa64(r.seq), itoa64(r.requestID), r.op, itoa64(r.key),
+			boolStr(r.hot), itoa(r.target),
 			itoa64(r.startNS), itoa64(r.endNS), itoa64(r.latencyNS), boolStr(r.ok), r.errMsg,
 		})
 	}
@@ -430,6 +467,7 @@ func writeSummary(cfg *config, phaseStart time.Time) {
 		"concurrency": cfg.concurrency, "duration_s": cfg.duration.Seconds(),
 		"warmup_s": cfg.warmup.Seconds(), "phase_started_ns": phaseStart.UnixNano(),
 		"phase_ended_ns": time.Now().UnixNano(),
+		"conflict_pct":   cfg.conflictPct, "hot_keys": cfg.hotKeys,
 	}
 	data, _ := json.MarshalIndent(summary, "", "  ")
 	os.WriteFile(filepath.Join(cfg.outDir, "client-summary.json"), data, 0o644)

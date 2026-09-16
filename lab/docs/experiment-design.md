@@ -136,14 +136,13 @@ resolution, and is labeled as such.
   connections on the same port. The client therefore waits for the master to
   report all replicas registered plus a settle period before connecting;
   probing the port directly would corrupt the peer protocol.
-- **EPaxos cluster-size limit (upstream `DS = 5`)**: the vendored
-  `efficient/epaxos` implementation hardcodes the dependency-set size to 5
-  (`const DS = 5` in `src/epaxos/epaxos.go`, and `Deps [5]int32` in the
-  `epaxosproto` wire messages). Clusters of 7 or 9 replicas cause an
-  index-out-of-range panic in the upstream consensus code. The lab does not
-  modify the consensus path, so EPaxos scaling experiments at 7 and 9
-  replicas are recorded as failed runs (see `results/run-index.csv`). This
-  is an upstream implementation limit, not a lab defect.
+- **EPaxos dependency-set size (`DS`)**: the vendored `efficient/epaxos`
+  hardcodes the dependency-set size to 5 (`const DS = 5` in
+  `src/epaxos/epaxos.go`, `Deps [5]int32` in the `epaxosproto` messages), which
+  limits a cluster to 5 replicas. The lab extends it to 9 via a documented
+  wire-format extension so that 7- and 9-replica clusters work. The protocol's
+  phases, quorums, and decision rules are unchanged; all replicas run the same
+  patched binary. See `upstream/epaxos/UPSTREAM.md`.
 - **Recovery timing precision**: availability gaps are derived from request
   timestamps and the ~200ms monitor resolution; they are approximate.
 - **EPaxos state is in-memory**: a restarted EPaxos replica loses local

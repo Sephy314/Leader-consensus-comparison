@@ -785,12 +785,13 @@ def render_limitations():
   outcomes are shown in the sections above.</p>
   <h3>Implementation limitations</h3>
   <ul>
-    <li><strong>EPaxos cluster-size limit (upstream <code>DS = 5</code>):</strong>
-    the vendored <code>efficient/epaxos</code> hardcodes its dependency-set
-    size to 5, including in the inter-replica wire format. Clusters larger
-    than 5 replicas panic inside the upstream consensus code. The lab does
-    not modify the consensus path, so such runs are recorded as failed.
-    Changing <code>DS</code> would alter the EPaxos wire format.</li>
+    <li><strong>EPaxos dependency-set size (<code>DS</code>):</strong> the
+    vendored <code>efficient/epaxos</code> hardcodes its dependency-set size
+    to 5, including in the inter-replica wire format, which limits a cluster
+    to 5 replicas. The lab extends it to 9 so that 7- and 9-replica clusters
+    work. This is a wire-format extension, not a consensus change: the
+    protocol's phases, quorums, and decision rules are untouched, and all
+    replicas run the same patched binary.</li>
     <li><strong>EPaxos single-port design:</strong> the upstream server serves
     peer and client connections on the same port; the client waits for
     master-reported readiness plus a settle period instead of probing.</li>

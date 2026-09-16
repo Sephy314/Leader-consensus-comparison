@@ -15,3 +15,24 @@ type LeaderIdArgs struct {
 type LeaderIdReply struct {
 	LeaderId int
 }
+
+// StatsArgs/StatsReply let the lab's runner query a replica's cumulative
+// protocol counters. For EPaxos these are the fast-path (no-conflict) and
+// slow-path (conflict-resolved) execution counts, which the upstream
+// implementation already tracks; the lab only makes them cumulative and
+// reachable over RPC. For Raft the counters are zero (Raft has no fast/slow
+// path distinction).
+type StatsArgs struct {
+}
+
+type StatsReply struct {
+	// FastPath is the cumulative number of commands that completed on the
+	// protocol's fast path (EPaxos: committed in one round trip).
+	FastPath int64
+	// SlowPath is the cumulative number of commands that required the slow
+	// path (EPaxos: an extra Accept round).
+	SlowPath int64
+	// Conflicted is the cumulative number of conflicts observed
+	// (EPaxos: non-equal replies plus dependency-set mismatches).
+	Conflicted int64
+}

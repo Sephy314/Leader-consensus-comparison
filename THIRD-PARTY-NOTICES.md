@@ -9,10 +9,31 @@
 - License: Apache License, Version 2.0
 - Copyright: 2013 Carnegie Mellon University
 
-The upstream source is vendored unmodified, except for a platform port of the
-`rdtsc` package to support arm64 builds (see
-lab/upstream/epaxos/src/rdtsc/). The upstream LICENSE text is preserved at
+The upstream source is vendored with two documented modifications: an arm64
+port of the `rdtsc` package and a dependency-set size extension. See
+lab/upstream/epaxos/UPSTREAM.md. The upstream LICENSE text is preserved at
 lab/upstream/epaxos/LICENSE.
+
+## Modifications to vendored source
+
+1. arm64 build port (no protocol logic touched):
+
+- `src/rdtsc/rdtsc.s` - added `//go:build amd64` build tag (content unchanged)
+- `src/rdtsc/rdtsc_arm64.s` - new file: arm64 implementation of `Cputicks`
+  using the ARMv8 generic counter (CNTVCT_EL0)
+
+2. dependency-set size extension (`DS = 5` -> `9`), a wire-format extension
+   that lets clusters larger than 5 replicas run. The protocol's phases,
+   quorums, and decision rules are unchanged; all replicas run the same
+   patched binary. Touched files:
+
+- `src/epaxos/epaxos.go` - `const DS = 5` -> `9`, and two `[]int32{-1,...}`
+  literals extended from 5 to 9 elements
+- `src/epaxosproto/epaxosproto.go` - `Deps [5]int32` -> `[9]int32`
+- `src/epaxosproto/epaxosprotomarsh.go` - buffer sizes, `BinarySize` values,
+  and per-index `Deps[i]` Marshal/Unmarshal blocks extended from 5 to 9
+
+No consensus algorithm was modified.
 
 ## github.com/hashicorp/raft
 
@@ -23,17 +44,6 @@ lab/upstream/epaxos/LICENSE.
 Not vendored; used as a Go module dependency of the lab module `conslab`
 (pinned in lab/go.mod / lab/go.sum). Also used:
 `github.com/hashicorp/raft-boltdb/v2 v2.3.0` (MPL-2.0) for Raft's log store.
-
-## Modifications to vendored source
-
-The following files under lab/upstream/epaxos/ were modified from upstream to
-make the lab buildable on arm64 hosts:
-
-- `src/rdtsc/rdtsc.s` - added `//go:build amd64` build tag (content unchanged)
-- `src/rdtsc/rdtsc_arm64.s` - new file: arm64 implementation of `Cputicks`
-  using the ARMv8 generic counter (CNTVCT_EL0)
-
-No consensus protocol logic was modified.
 
 ## Lab infrastructure deviations from the original spec
 
