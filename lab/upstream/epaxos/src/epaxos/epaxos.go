@@ -275,11 +275,16 @@ type StatsReply struct {
 	Conflicted int64
 }
 
-// GetStats reports the cumulative fast/slow path execution counts. The lab's
+// Stats reports the cumulative fast/slow path execution counts. The lab's
 // runner queries every replica to compute fast-path and slow-path ratios.
-func (r *Replica) GetStats(args *StatsArgs, reply *StatsReply) error {
+//
+// The upstream counters are incremented per committed instance, not per
+// command: `happy` counts fast-path commits, `slow` counts slow-path
+// commits, and `weird` is a diagnostic subset of the slow path ("some
+// dependency not yet committed"), so it is NOT added to the slow count.
+func (r *Replica) Stats(args *StatsArgs, reply *StatsReply) error {
 	reply.FastPath = int64(happy)
-	reply.SlowPath = int64(weird + slow)
+	reply.SlowPath = int64(slow)
 	reply.Conflicted = int64(conflicted)
 	return nil
 }

@@ -171,8 +171,10 @@ func (r Run) Validate() error {
 	if r.Failure.Mode == FailureElection && r.Protocol != "raft" {
 		return fmt.Errorf("failure mode %q requires protocol raft", r.Failure.Mode)
 	}
-	if r.Failure.Mode == FailureElection && r.Failure.FailedElections < 1 {
-		return fmt.Errorf("failure.failed_elections must be >= 1 for election mode")
+	// failed_elections = 0 is the baseline (no failed elections induced);
+	// negative values are invalid.
+	if r.Failure.Mode == FailureElection && r.Failure.FailedElections < 0 {
+		return fmt.Errorf("failure.failed_elections must be >= 0 for election mode")
 	}
 	if r.Failure.Mode == FailureReplica && r.Protocol != "epaxos" {
 		return fmt.Errorf("failure mode %q requires protocol epaxos", r.Failure.Mode)

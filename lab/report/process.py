@@ -101,6 +101,7 @@ def process_run(run_dir, run_id):
         "read_pct": cfg["read_pct"],
         "write_pct": cfg["write_pct"],
         "concurrency": cfg["concurrency"],
+        "conflict_pct": cfg.get("conflict_pct", 0),
         "failure_mode": cfg["failure"]["mode"],
         "status": "success",
         "requests_total": total,

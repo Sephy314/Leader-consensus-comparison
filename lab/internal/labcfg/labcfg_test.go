@@ -82,14 +82,21 @@ func TestValidateElectionFailureRequiresRaft(t *testing.T) {
 	}
 }
 
-func TestValidateElectionFailureRequiresCount(t *testing.T) {
+func TestValidateElectionFailureCount(t *testing.T) {
+	// 0 is the baseline (no failed elections induced) and must be valid.
 	r := validBase()
 	r.Protocol = "raft"
 	r.Failure.Mode = FailureElection
 	r.Failure.AtS = 10
 	r.Failure.FailedElections = 0
+	if err := r.Validate(); err != nil {
+		t.Errorf("failed_elections=0 (baseline) should be valid: %v", err)
+	}
+
+	// Negative counts are invalid.
+	r.Failure.FailedElections = -1
 	if err := r.Validate(); err == nil {
-		t.Error("election failure mode should require failed_elections >= 1")
+		t.Error("failed_elections=-1 should be rejected")
 	}
 }
 

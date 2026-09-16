@@ -42,6 +42,7 @@ type MatrixSpec struct {
 	Conflict    *ConflictSpec  `json:"conflict"`
 	Concurrency *ConcSpec      `json:"concurrency"`
 	Failure     *FailureMatrix `json:"failure"`
+	Election    *ElectionSpec  `json:"election"`
 }
 
 type WorkloadSpec struct {
@@ -81,21 +82,33 @@ type FailureMatrix struct {
 	Cases []FailureCase `json:"cases"`
 }
 
+// ElectionSpec is the election-failure recovery experiment: kill the Raft
+// leader, then induce a target number of failed election attempts by
+// isolating the survivors' transport. The actual recovery time is measured.
+type ElectionSpec struct {
+	Protocol        string  `json:"protocol"`
+	Replicas        int     `json:"replicas"`
+	WritePct        int     `json:"write_pct"`
+	Concurrency     int     `json:"concurrency"`
+	AtS             float64 `json:"at_s"`
+	FailedElections []int   `json:"failed_elections"`
+}
+
 type FailureCase struct {
-	Protocol       string             `json:"protocol"`
-	Mode           labcfg.FailureMode `json:"mode"`
-	Replicas       int                `json:"replicas"`
-	WritePct       int                `json:"write_pct"`
-	Concurrency    int                `json:"concurrency"`
-	AtS            float64            `json:"at_s"`
-	RestartAfterS  float64            `json:"restart_after_s"`
-	FailedElections int               `json:"failed_elections"`
+	Protocol        string             `json:"protocol"`
+	Mode            labcfg.FailureMode `json:"mode"`
+	Replicas        int                `json:"replicas"`
+	WritePct        int                `json:"write_pct"`
+	Concurrency     int                `json:"concurrency"`
+	AtS             float64            `json:"at_s"`
+	RestartAfterS   float64            `json:"restart_after_s"`
+	FailedElections int                `json:"failed_elections"`
 }
 
 func cmdMatrix(args []string) error {
 	fs := flag.NewFlagSet("matrix", flag.ContinueOnError)
 	configPath := fs.String("config", "configs/matrix.json", "matrix config")
-	only := fs.String("only", "", "run only this experiment family (workload|scaling|failure)")
+	only := fs.String("only", "", "run only this experiment family (workload|scaling|conflict|concurrency|failure|election)")
 	limit := fs.Int("limit", 0, "limit number of runs (0 = no limit)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -136,6 +149,7 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			for _, rp := range spec.Workload.ReadPcts {
 				for _, c := range spec.Workload.Concurrencies {
 					cfg := base
+					cfg.Experiment = "workload"
 					cfg.Protocol = proto
 					cfg.Replicas = spec.Workload.Replicas
 					cfg.ReadPct = rp
@@ -151,6 +165,7 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 		for _, proto := range spec.Scaling.Protocols {
 			for _, n := range spec.Scaling.Replicas {
 				cfg := base
+				cfg.Experiment = "scaling"
 				cfg.Protocol = proto
 				cfg.Replicas = n
 				cfg.WritePct = spec.Scaling.WritePct
@@ -165,6 +180,7 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 		for _, proto := range spec.Conflict.Protocols {
 			for _, pct := range spec.Conflict.ConflictPcts {
 				cfg := base
+				cfg.Experiment = "conflict"
 				cfg.Protocol = proto
 				cfg.Replicas = spec.Conflict.Replicas
 				cfg.WritePct = spec.Conflict.WritePct
@@ -180,6 +196,7 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 		for _, proto := range spec.Concurrency.Protocols {
 			for _, c := range spec.Concurrency.Concurrencies {
 				cfg := base
+				cfg.Experiment = "concurrency"
 				cfg.Protocol = proto
 				cfg.Replicas = spec.Concurrency.Replicas
 				cfg.WritePct = spec.Concurrency.WritePct
@@ -193,12 +210,30 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 	if spec.Failure != nil && (only == "" || only == "failure") {
 		for _, c := range spec.Failure.Cases {
 			cfg := base
+			cfg.Experiment = "failure"
 			cfg.Protocol = c.Protocol
 			cfg.Replicas = c.Replicas
 			cfg.WritePct = c.WritePct
 			cfg.ReadPct = 100 - c.WritePct
 			cfg.Concurrency = c.Concurrency
 			cfg.Failure = labcfg.Failure{Mode: c.Mode, AtS: c.AtS, RestartAfterS: c.RestartAfterS, FailedElections: c.FailedElections}
+			out = append(out, cfg)
+		}
+	}
+	if spec.Election != nil && (only == "" || only == "election") {
+		for _, n := range spec.Election.FailedElections {
+			cfg := base
+			cfg.Experiment = "election"
+			cfg.Protocol = spec.Election.Protocol
+			cfg.Replicas = spec.Election.Replicas
+			cfg.WritePct = spec.Election.WritePct
+			cfg.ReadPct = 100 - spec.Election.WritePct
+			cfg.Concurrency = spec.Election.Concurrency
+			cfg.Failure = labcfg.Failure{
+				Mode:            labcfg.FailureElection,
+				AtS:             spec.Election.AtS,
+				FailedElections: n,
+			}
 			out = append(out, cfg)
 		}
 	}

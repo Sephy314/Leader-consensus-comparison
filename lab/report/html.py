@@ -170,6 +170,7 @@ class Dataset:
                 "read_pct": m.get("read_pct", meta.get("config", {}).get("read_pct", "")),
                 "write_pct": m.get("write_pct", meta.get("config", {}).get("write_pct", "")),
                 "concurrency": m.get("concurrency", meta.get("config", {}).get("concurrency", "")),
+                "conflict_pct": m.get("conflict_pct", 0),
                 "failure_mode": m.get("failure_mode", meta.get("config", {}).get("failure", {}).get("mode", "none")),
                 "throughput": m.get("throughput_req_s"),
                 "p50": m.get("latency_ns_p50"),
@@ -321,15 +322,17 @@ class Dataset:
 
     def conflict_table(self):
         """Per (protocol, conflict_pct): mean throughput/latency and, for
-        EPaxos, the fast/slow path ratio. All values are derived from the
-        dataset; nothing is assumed about the relationship."""
+        EPaxos, the fast/slow path ratio. Only runs from the conflict
+        experiment family are included: conflict_pct=0 is also the default
+        for every other experiment, so filtering on the value alone would
+        mix families."""
         rows = []
-        pcts = sorted({int(m.get("conflict_pct", 0)) for m in self.metrics
-                       if m.get("conflict_pct") is not None})
-        for proto in self.protocols:
+        base = [r for r in self.runs if r.get("experiment") == "conflict" and r["valid"]]
+        pcts = sorted({int(r.get("conflict_pct", 0)) for r in base})
+        for proto in sorted({r["protocol"] for r in base}):
             for pct in pcts:
-                runs = [r for r in self.runs
-                        if r["protocol"] == proto and r["valid"]
+                runs = [r for r in base
+                        if r["protocol"] == proto
                         and str(r.get("conflict_pct", "")) == str(pct)]
                 if not runs:
                     continue
@@ -359,14 +362,15 @@ class Dataset:
 
     def concurrency_table(self):
         """Per (protocol, concurrency): mean throughput/latency and per-node
-        CPU distribution from resources.csv."""
+        CPU distribution from resources.csv. Restricted to the concurrency
+        experiment family (concurrency values also appear in other families)."""
         rows = []
-        concs = sorted({int(m.get("concurrency", 0)) for m in self.metrics
-                        if m.get("concurrency") is not None})
-        for proto in self.protocols:
+        base = [r for r in self.runs if r.get("experiment") == "concurrency" and r["valid"]]
+        concs = sorted({int(r.get("concurrency", 0)) for r in base})
+        for proto in sorted({r["protocol"] for r in base}):
             for c in concs:
-                runs = [r for r in self.runs
-                        if r["protocol"] == proto and r["valid"]
+                runs = [r for r in base
+                        if r["protocol"] == proto
                         and str(r.get("concurrency", "")) == str(c)]
                 if not runs:
                     continue
