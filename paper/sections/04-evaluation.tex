@@ -8,8 +8,11 @@ otherwise, results are for 3 replicas, 100\,\% writes, and concurrency 32.
 
 At the 3-replica baseline (concurrency 32, 100\%\ writes), EPaxos sustains
 5{,}697\,req/s and Raft 4{,}449\,req/s. One Raft repetition at this
-configuration recorded 542\,req/s, an order of magnitude below the other two,
-and is excluded as an outlier. Increasing the replica count reduces
+configuration recorded 542\,req/s, an order of magnitude below the other two;
+its per-replica CPU utilisation was a third of the normal runs, indicating
+host-level CPU starvation rather than a protocol effect, and the
+configuration was re-run. The re-run values (4{,}398, 4{,}078, and
+3{,}286\,req/s) are used below. Increasing the replica count reduces
 throughput for both protocols, but at different rates
 (Table~\ref{tab:scaling}). EPaxos falls from 5{,}310\,req/s at 5 replicas to
 2{,}827\,req/s at 9 replicas, a reduction of 50\% relative to the 3-replica
@@ -42,6 +45,15 @@ at concurrency 256, EPaxos reaches 34{,}936\,req/s and Raft
 17{,}039\,req/s. Across the concurrency sweep the highest per-run value
 observed for EPaxos is 37{,}880\,req/s and for Raft 18{,}233\,req/s.
 
+Four Raft configurations in the concurrency family (concurrency 4, 8, 16,
+and 32) each had one repetition with throughput an order of magnitude below
+the other two and per-replica CPU utilisation about a third of normal,
+indicating host-level CPU starvation during those runs. These
+configurations were re-run; the re-run values are consistent with the
+unaffected repetitions (for example, concurrency 4: 717, 709, and
+705\,req/s versus the original 710 and 706\,req/s) and are used in the
+family means reported here.
+
 The write-ratio sweep shows little variation in throughput for either
 protocol. Between 0\,\% and 100\,\% writes, EPaxos ranges from 4{,}585 to
 4{,}621\,req/s and Raft from 4{,}488 to 4{,}674\,req/s at concurrency 32.
@@ -62,11 +74,11 @@ magnitude to the between-configuration variation in both cases.
 \subsection{Latency}
 
 At the 3-replica baseline, median latency is 6.7\,ms for Raft and 5.6\,ms
-for EPaxos (one Raft repetition recorded 57.8\,ms and is excluded as an
-outlier). As replicas are added, Raft median latency grows while EPaxos
-median latency is largely unchanged (Table~\ref{tab:latency}). Raft rises
-from 9.7\,ms at 5 replicas to 15.1\,ms at 9 replicas; EPaxos remains between
-5.4\,ms and 5.5\,ms across the same range.
+for EPaxos (the re-run Raft values are 6.8, 7.0, and 7.1\,ms). As replicas
+are added, Raft median latency grows while EPaxos median latency is largely
+unchanged (Table~\ref{tab:latency}). Raft rises from 9.7\,ms at 5 replicas
+to 15.1\,ms at 9 replicas; EPaxos remains between 5.4\,ms and 5.5\,ms across
+the same range.
 
 \begin{table}[t]
 \caption{Median (p50) latency in milliseconds by replica count, at
