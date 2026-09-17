@@ -41,15 +41,16 @@ at concurrency 256, EPaxos reaches 34{,}936\,req/s and Raft
 observed for EPaxos is 37{,}880\,req/s and for Raft 18{,}233\,req/s.
 
 The write-ratio sweep shows little variation in throughput for either
-protocol. Between 0\,\% and 100\,\% writes, EPaxos ranges from 4{,}585 to
-4{,}621\,req/s and Raft from 4{,}488 to 4{,}674\,req/s at concurrency 32.
+protocol. Between 0\,\% and 100\,\% writes, EPaxos ranges from 5{,}528 to
+5{,}564\,req/s and Raft from 4{,}488 to 4{,}651\,req/s at concurrency 32.
 Reads are routed through consensus in both protocols, and neither shows a
-systematic trend across the write ratios tested. The absolute values in
-this family are lower than the concurrency family at the same nominal
-configuration (for example, EPaxos at 100\%\ writes and concurrency 32
-measures 4{,}610\,req/s here versus 5{,}697\,req/s in the concurrency
-family); the families were run as separate sweeps, and the difference is
-within the run-to-run variation observed across families.
+systematic trend across the write ratios tested. The EPaxos values are
+consistent with the concurrency family at the same nominal configuration
+(5{,}564\,req/s at 100\,\% writes here versus 5{,}697\,req/s in the
+concurrency family). Raft shows larger run-to-run variation: its
+concurrency-family baseline (3{,}921\,req/s) is lower than the
+workload-family values, reflecting the higher variance of leader-based
+serialisation.
 
 Conflict ratio also produces little systematic change. Mean throughput
 ranges from 3{,}897 to 4{,}448\,req/s for Raft and from 4{,}608 to
