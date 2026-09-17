@@ -63,8 +63,12 @@ func TestRunIDUniqueness(t *testing.T) {
 		{"conflict90", func(r *labcfg.Run) { r.ConflictPct = 90 }},
 		{"leaderfail", func(r *labcfg.Run) { r.Failure = labcfg.Failure{Mode: labcfg.FailureLeader, AtS: 10} }},
 		{"followerfail", func(r *labcfg.Run) { r.Failure = labcfg.Failure{Mode: labcfg.FailureFollower, AtS: 10} }},
-		{"elections0", func(r *labcfg.Run) { r.Failure = labcfg.Failure{Mode: labcfg.FailureElection, AtS: 10, FailedElections: 1} }},
-		{"elections4", func(r *labcfg.Run) { r.Failure = labcfg.Failure{Mode: labcfg.FailureElection, AtS: 10, FailedElections: 5} }},
+		{"elections0", func(r *labcfg.Run) {
+			r.Failure = labcfg.Failure{Mode: labcfg.FailureElection, AtS: 10, FailedElections: 1}
+		}},
+		{"elections4", func(r *labcfg.Run) {
+			r.Failure = labcfg.Failure{Mode: labcfg.FailureElection, AtS: 10, FailedElections: 5}
+		}},
 	}
 	for _, tc := range configs {
 		r := baseRun()

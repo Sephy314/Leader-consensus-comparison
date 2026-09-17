@@ -1,6 +1,6 @@
 # Reproducibility
 
-This document describes how to reproduce the consensus benchmark study from
+This document describes how to reproduce the consensus benchmark comparison from
 a known repository state. The operational commands live in `lab/`; this
 document is the research-level reproduction procedure.
 

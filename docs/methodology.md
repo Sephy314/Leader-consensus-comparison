@@ -1,14 +1,14 @@
 # Methodology
 
 This document describes the research methodology of the consensus benchmark
-study. It is the scientific counterpart of the operational lab documentation
+comparison. It is the scientific counterpart of the operational lab documentation
 (`lab/docs/`); it defines what is measured, how it is measured, and how the
 measurements are interpreted. It does **not** draw conclusions about which
 protocol is "better" — the data decides.
 
 ## 1. Research questions
 
-The study compares two consensus protocols with fundamentally different
+The comparison compares two consensus protocols with fundamentally different
 ordering architectures:
 
 - **Raft** — leader-based ordering: a single elected leader orders all
@@ -30,7 +30,7 @@ The research questions are:
 6. Are the two systems being compared under equivalent consistency
    semantics?
 
-The study does **not** assume either protocol is universally superior. The
+The comparison does **not** assume either protocol is universally superior. The
 benchmark is neutral and reproducible.
 
 ## 2. Systems under test

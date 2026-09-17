@@ -1,6 +1,6 @@
-# The Cost of Centralised Ordering
+# The Cost of Centralised Leadership in Distributed Consensus
 
-> An Experimental Study of Leader-Based and Leaderless Consensus
+> An Experimental Comparison of Leader-Based and Leaderless Consensus
 
 Research repository.
 

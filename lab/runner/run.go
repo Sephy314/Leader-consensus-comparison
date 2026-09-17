@@ -281,12 +281,12 @@ func writeMetadata(dir string, cfg labcfg.Run, rep int, runID string, res runRes
 func readSemantics(protocol string) map[string]any {
 	if protocol == "raft" {
 		return map[string]any{
-			"system":              "raft",
-			"read_consistency":    "linearizable",
-			"read_path":           "client -> leader (raft.Raft.Leader) -> raft.Apply(GET) -> quorum commit -> state read -> reply",
+			"system":                "raft",
+			"read_consistency":      "linearizable",
+			"read_path":             "client -> leader (raft.Raft.Leader) -> raft.Apply(GET) -> quorum commit -> state read -> reply",
 			"coordination_required": true,
-			"target_replica":      "leader",
-			"mechanism":           "leader-confirmed, quorum-based (every read is a consensus command; no local-read optimization)",
+			"target_replica":        "leader",
+			"mechanism":             "leader-confirmed, quorum-based (every read is a consensus command; no local-read optimization)",
 		}
 	}
 	return map[string]any{

@@ -1,13 +1,35 @@
-\documentclass[11pt]{article}
+% ACM Standard Format
+% Compile with: pdflatex main && bibtex main && pdflatex main && pdflatex main
+\documentclass[sigconf]{acmart}
 
+% --- Metadata ---
+\settopmatter{printacmref=false}   % no ACM reference footer (pre-submission)
+\renewcommand\footnotetextcopyrightpermission[1]{}  % no copyright block
+\pagestyle{plain}                  % page numbers for review
+
+% --- Packages ---
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage{cite}
 
-\title{The Cost of Centralised Ordering}
+% --- Title and authors ---
+\title{The Cost of Centralised Leadership in Distributed Consensus}
+
 \author{Davie Ryu}
+\affiliation{%
+  \institution{Independent Researcher}
+  \country{South Korea}
+}
+\email{davie.ryu@example.com}
+
+% --- Abstract ---
+\begin{abstract}
+% TODO: Write the abstract after the experiments have been run.
+\end{abstract}
+
+% --- Keywords ---
+\keywords{consensus, Raft, EPaxos, leader-based ordering, leaderless ordering, benchmarking}
 
 \begin{document}
 
@@ -24,7 +46,7 @@
 \input{sections/09-threats-to-validity}
 \input{sections/10-conclusion}
 
-\bibliographystyle{plain}
+\bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
 
 \end{document}

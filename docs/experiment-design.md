@@ -1,7 +1,7 @@
 # Experiment Design
 
 This document specifies the experiment design of the consensus benchmark
-study. It is the research-level specification; the operational implementation
+comparison. It is the research-level specification; the operational implementation
 is in `lab/docs/experiment-design.md`. The design is neutral: it measures
 both protocols under identical logical workloads and does not assume a
 winner.
