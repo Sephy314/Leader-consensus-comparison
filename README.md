@@ -12,14 +12,15 @@ the same execution environment:
 
 | Protocol | Category | Implementation |
 |----------|----------|----------------|
-| Classic Paxos | Leader-based | `efficient/epaxos` (upstream) |
-| EPaxos | Leaderless / Egalitarian | `efficient/epaxos` (upstream) |
+| Raft | Leader-based | `github.com/hashicorp/raft` (pinned v1.7.3, module dep) |
+| EPaxos | Leaderless / Egalitarian | `efficient/epaxos` (pinned commit, vendored) |
 
-The lab does **not** modify the upstream consensus protocol logic. It vendors
-the upstream source, builds it into a Docker image, and drives it with a
-controlled client harness to measure write throughput, write latency, write
-scalability, per-replica resource utilisation, and write behaviour during
-failures.
+Raft and EPaxos are used as representative implementations of leader-based
+and leaderless consensus respectively. The lab does **not** modify the
+upstream consensus protocol logic. It vendors the upstream source, builds it
+into a Docker image, and drives it with a controlled client harness to
+measure write throughput, write latency, write scalability, per-replica
+resource utilisation, and write behaviour during failures.
 
 > This is an experiment infrastructure, not a research paper. No conclusions
 > are drawn here; the experiments must be run before any claims can be made.
@@ -28,27 +29,31 @@ failures.
 
 ```
 consensus-comparison/
-├── Makefile
 ├── README.md
 ├── LICENSE
 ├── NOTICE
 ├── THIRD-PARTY-NOTICES.md
-├── paper/                  # (placeholder) paper sources
+├── paper/                  # ACM-format paper sources
 │   ├── main.tex
 │   ├── references.bib
-│   ├── figures/
+│   ├── sections/
 │   └── tables/
-├── lab/
-│   ├── docker/Dockerfile   # multi-stage build of the upstream binaries
-│   ├── scripts/
-│   │   ├── gen_compose.py  # Docker Compose generator
-│   │   ├── orchestrate.py  # scaling / workload / conflict / concurrency experiments
-│   │   ├── failure_test.py # failure behaviour experiment
-│   │   └── report.py       # self-contained HTML report generator
-│   ├── experiments/        # experiment definitions / notes
-│   ├── compose/generated/  # generated compose files (gitignored)
-│   ├── results/            # CSV results + report.html (gitignored)
-│   └── vendor/epaxos/      # vendored upstream source (Apache-2.0, CMU 2013)
+├── lab/                    # the Consensus Lab
+│   ├── Makefile            # build / smoke / matrix / report entry points
+│   ├── README.md           # lab documentation
+│   ├── upstream/           # vendored upstream implementations
+│   │   ├── epaxos/         # efficient/epaxos (pinned commit, Apache-2.0, CMU 2013)
+│   │   └── raft/           # github.com/hashicorp/raft (pinned v1.7.3, module dep)
+│   ├── adapters/raft/      # thin adapter around HashiCorp Raft (no consensus logic)
+│   ├── master/raft/        # coordination service for Raft runs (leader reporting only)
+│   ├── client/             # common benchmark client (both protocols, one wire protocol)
+│   ├── monitor/            # host-side per-container resource sampler
+│   ├── runner/             # experiment runner: build, run, matrix, smoke
+│   ├── report/             # processing + figure + HTML report generation (Python)
+│   ├── configs/            # explicit experiment configurations (matrix.json, smoke.json)
+│   ├── docker/             # lab runtime image
+│   ├── internal/           # shared packages (wire protocol, state, config)
+│   └── results/            # raw/processed/figures/report (generated)
 └── docs/
     ├── methodology.md
     ├── experiment-design.md
@@ -59,50 +64,45 @@ consensus-comparison/
 
 - Docker (with BuildKit)
 - Docker Compose v2
-- Python 3.10+ (only if orchestration / report generation is run locally)
-- `pandas` and `matplotlib` (installed into `lab/.venv` by `make setup`)
+- Go 1.26+ (to build the lab binaries)
+- Python 3.10+ (runner/report only; installed into `lab/.venv`)
 
 ## Quickstart
 
 ```sh
-make build        # build the Docker image
-make exp-all      # run all experiments (scaling, workload, conflict, failure)
-make report       # generate results/report.html
+cd lab
+make build        # build Go binaries + upstream EPaxos + docker image
+make smoke        # staged smoke tests (build, clusters, requests, workload, failures, metrics)
+make matrix       # run the full experiment matrix (hours)
+make report       # process raw results + generate figures + HTML report
 ```
 
-Then open `lab/results/report.html` in a browser. The report is fully
+Then open `lab/results/report/index.html` in a browser. The report is fully
 self-contained (charts are embedded as base64 PNG data) and works without an
 internet connection.
 
 ## Manual execution
 
-### Starting a cluster
+### Running a single experiment
 
 ```sh
-make up-paxos N=5   # 5-node Classic Paxos cluster
-make up-epaxos N=5  # 5-node EPaxos cluster
-make down           # tear down the active cluster
+cd lab
+make run CFG=configs/smoke.json   # one experiment from a config
+make run CFG=configs/matrix.json REP=1
 ```
 
-### Running individual experiments
+### Running the experiment suite
 
 ```sh
-make exp-scaling    # write throughput vs replica count (3,5,7,9)
-make exp-workload   # write throughput vs write ratio (10,50,90,100 %)
-make exp-conflict   # write throughput vs conflict ratio (0,25,50,75,100 %)
-make exp-failure    # failure behaviour (paxos leader kill, epaxos random kill)
-```
-
-All experiments accept `Q` (requests per run) and `REPS` (repetitions):
-
-```sh
-make exp-scaling Q=200 REPS=3
+make matrix       # full experiment matrix (scaling, workload, conflict, failure)
 ```
 
 ### Generating the report
 
 ```sh
-make report
+make report       # raw -> processed -> figures -> HTML report -> validation
+make html         # regenerate the HTML report from already-processed results
+make validate     # validate the report against the underlying data
 ```
 
 The report generator reads all available `lab/results/*.csv` files. Missing
@@ -122,10 +122,11 @@ experiments are shown as "Experiment not yet run." instead of failing.
 - **Local bridge networking**: no WAN latency; wide-area behaviour is not
   captured.
 - **Implementation-specific behaviour**: results reflect the upstream
-  `efficient/epaxos` implementation, not the protocols in general.
-- **Representative protocols**: Classic Paxos and EPaxos are representative
-  of leader-based and leaderless consensus respectively; they are not
-  universal representatives of all protocols in each category.
+  `efficient/epaxos` and `hashicorp/raft` implementations, not the protocols
+  in general.
+- **Representative protocols**: Raft and EPaxos are representative of
+  leader-based and leaderless consensus respectively; they are not universal
+  representatives of all protocols in each category.
 
 No claims are made that the experiments have demonstrated anything before the
 experiments are actually run.
@@ -133,5 +134,6 @@ experiments are actually run.
 ## License
 
 This repository is licensed under the Apache License 2.0 (see `LICENSE`).
-The vendored upstream source under `lab/vendor/epaxos/` is Copyright 2013
+The vendored upstream source under `lab/upstream/epaxos/` is Copyright 2013
 Carnegie Mellon University, also Apache-2.0 (see `THIRD-PARTY-NOTICES.md`).
+HashiCorp Raft (`github.com/hashicorp/raft`) is MPL-2.0.
