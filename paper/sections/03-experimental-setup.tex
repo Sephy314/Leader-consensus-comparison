@@ -6,10 +6,10 @@
 The experiments are conducted with the Consensus Lab, a reproducible benchmark
 infrastructure that runs both protocols in the same execution environment.
 Each run is a Docker Compose project with one container per role: a
-coordination service (the upstream EPaxos master, or the lab's raft master
-which mirrors its RPC surface), one container per replica, and a benchmark
-client. All containers share a single runtime image and identical CPU and
-memory allocations.
+coordination service (the upstream EPaxos master \cite{moraru2013epaxos}, or
+the lab's raft master which mirrors its RPC surface), one container per
+replica, and a benchmark client. All containers share a single runtime image
+and identical CPU and memory allocations.
 
 Both protocols expose the same benchmark-facing interface: the upstream
 EPaxos \texttt{genericsmr} wire protocol (\texttt{PROPOSE} $\rightarrow$
@@ -22,22 +22,24 @@ consensus in both protocols; there is no Raft-only local-read optimisation.
 
 \subsection{Implementation}
 
-Raft is provided by \texttt{github.com/hashicorp/raft} v1.7.3, wrapped in a
-thin adapter (\texttt{lab/adapters/raft/}) that converts benchmark requests
-into state-machine commands, calls \texttt{raft.Raft.Apply}, waits for the
+Raft is provided by \texttt{github.com/hashicorp/raft} v1.7.3
+\cite{hashicorpraft}, wrapped in a thin adapter
+(\texttt{lab/adapters/raft/}) that converts benchmark requests into
+state-machine commands, calls \texttt{raft.Raft.Apply}, waits for the
 resulting future, and returns the response. HashiCorp Raft performs leader
 election, log replication, quorum calculation, commit logic, term management,
 and state transitions; the adapter never elects or selects a leader. Raft
 replicas persist state to named volumes (boltdb).
 
 EPaxos uses the upstream \texttt{efficient/epaxos} server and master
-unchanged (pinned commit \texttt{791b115}, run with \texttt{-e -exec -dreply}).
-The lab only adds external orchestration: containers, monitoring, and failure
-injection. EPaxos replicas keep state in memory (upstream default). The
-vendored upstream hardcodes the dependency-set size to 5; the lab extends it
-to 9 via a documented wire-format extension so that 7- and 9-replica clusters
-run. The protocol's phases, quorums, and decision rules are unchanged, and
-all replicas run the same patched binary.
+unchanged \cite{moraru2013epaxos} (pinned commit \texttt{791b115}, run with
+\texttt{-e -exec -dreply}). The lab only adds external orchestration:
+containers, monitoring, and failure injection. EPaxos replicas keep state in
+memory (upstream default). The vendored upstream hardcodes the
+dependency-set size to 5; the lab extends it to 9 via a documented
+wire-format extension so that 7- and 9-replica clusters run. The protocol's
+phases, quorums, and decision rules are unchanged, and all replicas run the
+same patched binary.
 
 \subsection{Client Harness and Workload Model}
 
@@ -91,8 +93,11 @@ The experiment suite consists of six families:
   100\,\% writes, and concurrency 32, 2 protocols, 3 repetitions.
 \item \textbf{Concurrency}: concurrency sweep (1--256) at 3 replicas and
   100\,\% writes, 2 protocols, 3 repetitions.
-\item \textbf{Election}: Raft leader failure with 0--5 failed elections
-  (replicas isolated during the election), 3 repetitions.
+\item \textbf{Election}: Raft leader-election disruption: the leader is
+  killed and the surviving replicas' Raft transport is isolated for a target
+  number of failed election attempts (0--5), 3 repetitions. The actual
+  number of failed elections is measured from the leader-election log
+  transitions rather than assumed.
 \item \textbf{Failure}: Raft leader kill, Raft follower kill, and EPaxos
   replica kill at 3 replicas, 100\,\% writes, and concurrency 32, 3
   repetitions.
