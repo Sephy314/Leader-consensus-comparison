@@ -27,7 +27,7 @@ failures.
 ## Structure
 
 ```
-consensus-study/
+consensus-comparison/
 ├── Makefile
 ├── README.md
 ├── LICENSE
