@@ -11,6 +11,8 @@ paper/*.blg
 paper/*.log
 paper/*.out
 paper/*.pdf
+paper/main.fdb_latexmk
+paper/main.fls
 
 # Python
 __pycache__/
