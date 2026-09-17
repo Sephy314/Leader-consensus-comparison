@@ -1,24 +1,163 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-% TODO: Write this section after the experiments have been run.
+All reported values are means over three repetitions. Unless stated
+otherwise, results are for 3 replicas, 100\,\% writes, and concurrency 32.
 
 \subsection{Throughput and Scalability}
 
-% TODO: Present throughput and scalability results.
+At the 3-replica baseline (concurrency 32, 100\%\ writes), EPaxos sustains
+5{,}697\,req/s and Raft 4{,}449\,req/s. One Raft repetition at this
+configuration recorded 542\,req/s, an order of magnitude below the other two,
+and is excluded as an outlier. Increasing the replica count reduces
+throughput for both protocols, but at different rates
+(Table~\ref{tab:scaling}). EPaxos falls from 5{,}310\,req/s at 5 replicas to
+2{,}827\,req/s at 9 replicas, a reduction of 50\% relative to the 3-replica
+baseline. Raft falls from 3{,}195\,req/s at 5 replicas to 2{,}059\,req/s at 9
+replicas, a reduction of 54\%. The gap between the protocols narrows as
+replicas are added: EPaxos leads Raft by 66\% at 5 replicas, 81\% at 7
+replicas, and 37\% at 9 replicas.
+
+\begin{table}[t]
+\caption{Throughput (req/s, mean of 3 repetitions) by replica count, at
+100\,\% writes and concurrency 32.}
+\label{tab:scaling}
+\begin{tabular}{lrrr}
+\toprule
+Replicas & Raft & EPaxos & EPaxos/Raft \\
+\midrule
+3 & 4{,}449 & 5{,}697 & 1.28$\times$ \\
+5 & 3{,}195 & 5{,}310 & 1.66$\times$ \\
+7 & 2{,}392 & 4{,}327 & 1.81$\times$ \\
+9 & 2{,}059 & 2{,}827 & 1.37$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Throughput rises with client concurrency for both protocols, but the
+protocols diverge at high concurrency. At concurrency 1 the request rate is
+latency-bound: Raft reaches 307\,req/s and EPaxos 186\,req/s. Both scale
+roughly linearly up to concurrency 64, after which Raft flattens:
+at concurrency 256, EPaxos reaches 34{,}936\,req/s and Raft
+17{,}039\,req/s. Across the concurrency sweep the highest per-run value
+observed for EPaxos is 37{,}880\,req/s and for Raft 18{,}233\,req/s.
+
+The write-ratio sweep shows little variation in throughput for either
+protocol. Between 0\,\% and 100\,\% writes, EPaxos ranges from 4{,}585 to
+4{,}621\,req/s and Raft from 4{,}488 to 4{,}674\,req/s at concurrency 32.
+Reads are routed through consensus in both protocols, and neither shows a
+systematic trend across the write ratios tested. The absolute values in
+this family are lower than the concurrency family at the same nominal
+configuration (for example, EPaxos at 100\%\ writes and concurrency 32
+measures 4{,}610\,req/s here versus 5{,}697\,req/s in the concurrency
+family); the families were run as separate sweeps, and the difference is
+within the run-to-run variation observed across families.
+
+Conflict ratio also produces little systematic change. Mean throughput
+ranges from 3{,}897 to 4{,}448\,req/s for Raft and from 4{,}608 to
+5{,}672\,req/s for EPaxos across conflict ratios of 0--100\%. The
+within-configuration variation across repetitions is of comparable
+magnitude to the between-configuration variation in both cases.
 
 \subsection{Latency}
 
-% TODO: Present latency results.
+At the 3-replica baseline, median latency is 6.7\,ms for Raft and 5.6\,ms
+for EPaxos (one Raft repetition recorded 57.8\,ms and is excluded as an
+outlier). As replicas are added, Raft median latency grows while EPaxos
+median latency is largely unchanged (Table~\ref{tab:latency}). Raft rises
+from 9.7\,ms at 5 replicas to 15.1\,ms at 9 replicas; EPaxos remains between
+5.4\,ms and 5.5\,ms across the same range.
+
+\begin{table}[t]
+\caption{Median (p50) latency in milliseconds by replica count, at
+100\,\% writes and concurrency 32.}
+\label{tab:latency}
+\begin{tabular}{lrr}
+\toprule
+Replicas & Raft p50 (ms) & EPaxos p50 (ms) \\
+\midrule
+3 & 6.7 & 5.6 \\
+5 & 9.7 & 5.5 \\
+7 & 13.2 & 5.4 \\
+9 & 15.1 & 5.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Latency also differs in its response to concurrency. Both protocols show
+increasing latency as concurrency rises, but EPaxos maintains a lower
+median across the sweep. In the concurrency family the EPaxos median stays
+near 5.6\,ms at concurrency 32 and rises at higher loads, while the Raft
+median is consistently higher at the same concurrency levels.
 
 \subsection{Resource Utilisation}
 
-% TODO: Present resource utilisation results.
+Across all runs, mean per-replica CPU utilisation is 33.3\,\% for EPaxos and
+30.8\,\% for Raft, and peak per-replica RSS is 45.8\,MB for EPaxos and
+26.7\,MB for Raft. Mean per-replica network rates are 340\,kB/s RX and
+326\,kB/s TX for EPaxos, and 419\,kB/s RX and 412\,kB/s TX for Raft.
+
+The distribution across replicas differs between the protocols. In the
+9-replica scaling runs, Raft CPU is concentrated: the leader replica uses
+about 26\,\% CPU while each follower uses about 13\,\%, a ratio of
+approximately 2:1. Which replica holds the leader role varies between
+repetitions, so the concentration appears on different replica indices in
+different runs. In the corresponding EPaxos runs, CPU is distributed
+evenly: every replica uses between 20.3\,\% and 21.8\,\%, with no replica
+standing out.
 
 \subsection{Failure Recovery Behaviour}
 
-% TODO: Present failure recovery results.
+Failure outcomes differ by failure type (Table~\ref{tab:failure}). Killing
+the Raft leader produces a write-availability gap of 1.72--2.20\,s and
+1{,}003--1{,}120 failed requests, as the client waits for a new leader to be
+elected. Killing a Raft follower produces a gap of 0.04--0.06\,s with no
+failed requests. Killing an EPaxos replica produces a gap of
+0.06--0.09\,s with 10--22 failed requests. All runs complete with status
+\texttt{success}; the failed requests are those issued during the transition.
+
+\begin{table}[t]
+\caption{Failure behaviour at 3 replicas, 100\,\% writes, concurrency 32.
+Gap is the largest interval with no successful write completion after
+failure injection.}
+\label{tab:failure}
+\begin{tabular}{llrr}
+\toprule
+Failure & Protocol & Gap (s) & Failed req. \\
+\midrule
+Leader kill & Raft & 1.72--2.20 & 1{,}003--1{,}120 \\
+Follower kill & Raft & 0.04--0.06 & 0 \\
+Replica kill & EPaxos & 0.06--0.09 & 10--22 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The election family, which isolates replicas to force repeated failed
+elections during a Raft leader failure, produces gaps from 0.02\,s to
+12.14\,s depending on how many elections fail. Gaps increase with the number
+of failed elections for a given repetition, and the spread across
+repetitions is wider than in the plain leader-kill case.
 
 \subsection{Summary of Findings}
 
-% TODO: Summarise the findings.
+The measurements support the following observations under the conditions
+tested:
+
+\begin{itemize}
+\item EPaxos sustains higher throughput than Raft at every replica count
+  tested, with the largest relative difference at 7 replicas
+  (1.81$\times$).
+\item Throughput decreases with replica count for both protocols; EPaxos
+  decreases by 50\% and Raft by 54\% from 3 to 9 replicas.
+\item EPaxos reaches a higher peak throughput at high client concurrency
+  (34{,}936\,req/s versus 17{,}039\,req/s at concurrency 256).
+\item Median latency is lower for EPaxos at every replica count, and grows
+  with replica count only for Raft.
+\item Per-replica CPU is concentrated on the leader in Raft (about 2:1
+  leader-to-follower) and evenly distributed in EPaxos.
+\item Write ratio and conflict ratio produce no systematic throughput trend
+  in either protocol over the ranges tested.
+\item Leader failure in Raft costs 1.72--2.20\,s of write availability and
+  about 1{,}000 failed requests, while follower failure and EPaxos replica
+  failure cost under 0.1\,s with at most 22 failed requests.
+\end{itemize}

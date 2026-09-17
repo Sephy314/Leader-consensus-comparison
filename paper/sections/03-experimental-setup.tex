@@ -1,28 +1,108 @@
 \section{Experimental Setup}
 \label{sec:setup}
 
-% TODO: Write this section after the experimental methodology is finalized.
-
 \subsection{Consensus Lab Architecture}
 
-% TODO: Describe the consensus lab architecture.
+The experiments are conducted with the Consensus Lab, a reproducible benchmark
+infrastructure that runs both protocols in the same execution environment.
+Each run is a Docker Compose project with one container per role: a
+coordination service (the upstream EPaxos master, or the lab's raft master
+which mirrors its RPC surface), one container per replica, and a benchmark
+client. All containers share a single runtime image and identical CPU and
+memory allocations.
+
+Both protocols expose the same benchmark-facing interface: the upstream
+EPaxos \texttt{genericsmr} wire protocol (\texttt{PROPOSE} $\rightarrow$
+\texttt{ProposeReplyTS}). A single client binary drives both protocols with
+the same workload generator, so the op mix, key distribution, and timing are
+identical. The only protocol-intrinsic difference is endpoint selection:
+Raft sends every request to the leader reported by HashiCorp Raft, while
+EPaxos spreads requests round-robin across replicas. Reads are routed through
+consensus in both protocols; there is no Raft-only local-read optimisation.
 
 \subsection{Implementation}
 
-% TODO: Describe the vendored \texttt{efficient/epaxos} implementation.
+Raft is provided by \texttt{github.com/hashicorp/raft} v1.7.3, wrapped in a
+thin adapter (\texttt{lab/adapters/raft/}) that converts benchmark requests
+into state-machine commands, calls \texttt{raft.Raft.Apply}, waits for the
+resulting future, and returns the response. HashiCorp Raft performs leader
+election, log replication, quorum calculation, commit logic, term management,
+and state transitions; the adapter never elects or selects a leader. Raft
+replicas persist state to named volumes (boltdb).
+
+EPaxos uses the upstream \texttt{efficient/epaxos} server and master
+unchanged (pinned commit \texttt{791b115}, run with \texttt{-e -exec -dreply}).
+The lab only adds external orchestration: containers, monitoring, and failure
+injection. EPaxos replicas keep state in memory (upstream default). The
+vendored upstream hardcodes the dependency-set size to 5; the lab extends it
+to 9 via a documented wire-format extension so that 7- and 9-replica clusters
+run. The protocol's phases, quorums, and decision rules are unchanged, and
+all replicas run the same patched binary.
 
 \subsection{Client Harness and Workload Model}
 
-% TODO: Describe the client harness and the workload model.
+The client generates requests with a configurable read/write mix over a
+keyspace of 1{,}000 keys. Write ratio is expressed as the percentage of
+requests that are writes; the remainder are reads. The client is closed-loop
+and batch-oriented: it issues requests up to a configured concurrency level
+and measures throughput and latency per batch. A warm-up phase precedes the
+measured phase, and warm-up requests are not recorded.
 
 \subsection{Metrics}
 
-% TODO: Describe the evaluation metrics.
+For every request, the client records the run ID, protocol, replica count,
+workload ratio, concurrency, operation, key, target replica, start and end
+timestamps, latency, and success or failure. From these records the
+processing pipeline computes throughput (requests per second), success rate,
+and p50/p95/p99 latency distributions.
+
+Per-replica resource samples are collected from the host at approximately
+200\,ms resolution: CPU from cgroup v2 \texttt{cpu.stat}, network RX/TX from
+\texttt{/proc/\allowbreak{}<pid>/\allowbreak{}net/\allowbreak{}dev} in the
+container's network namespace, and memory (RSS) from
+\texttt{/proc/\allowbreak{}<pid>/\allowbreak{}status}. Raw samples are stored
+per replica without aggregation, so that workload distribution across
+replicas can be examined.
 
 \subsection{Testbed Configuration and Parameters}
 
-% TODO: Describe replica count, write ratio, and conflict ratio.
+All runs use a 20-second measured phase with a 3-second warm-up and three
+repetitions. Each replica container is allocated 2.0 CPUs and 512\,MB of
+memory; the client gets 2.0 CPUs and 512\,MB, and the master 1.0 CPU and
+256\,MB. \texttt{GOMAXPROCS} is set to 4 for every replica in both protocols.
+The request timeout is 2{,}000\,ms and the random seed is fixed at 42. Raft
+uses a 1{,}000\,ms heartbeat timeout, a 2{,}000\,ms election timeout, a
+snapshot threshold of 8{,}192 entries, and 1{,}024 trailing logs.
+
+The experiment dimensions are: replica count (3, 5, 7, 9), write ratio
+(0, 10, 50, 90, 100\,\%), conflict ratio (0, 10, 25, 50, 75, 90, 100\,\%),
+and client concurrency (1, 2, 4, 8, 16, 32, 64, 128, 256).
 
 \subsection{Experiment Suite}
 
-% TODO: Describe the scalability, workload, conflict, and failure experiments.
+The experiment suite consists of six families:
+
+\begin{itemize}
+\item \textbf{Workload}: write ratio sweep at 3 replicas and 8 concurrency
+  levels (1--128), 2 protocols, 3 repetitions.
+\item \textbf{Scaling}: replica count sweep (3--9) at 100\,\% writes and
+  concurrency 32, 2 protocols, 3 repetitions.
+\item \textbf{Conflict}: conflict ratio sweep (0--100\,\%) at 3 replicas,
+  100\,\% writes, and concurrency 32, 2 protocols, 3 repetitions.
+\item \textbf{Concurrency}: concurrency sweep (1--256) at 3 replicas and
+  100\,\% writes, 2 protocols, 3 repetitions.
+\item \textbf{Election}: Raft leader failure with 0--5 failed elections
+  (replicas isolated during the election), 3 repetitions.
+\item \textbf{Failure}: Raft leader kill, Raft follower kill, and EPaxos
+  replica kill at 3 replicas, 100\,\% writes, and concurrency 32, 3
+  repetitions.
+\end{itemize}
+
+Failure injection is deterministic: the runner kills a container with
+\texttt{docker kill} at a configured offset into the measured phase. For Raft
+leader failure, the runner queries the raft master for the current leader,
+maps it to the container hostname, and kills it; the client observes the
+election and reconnects to the new leader. For EPaxos replica failure,
+replica 0 is killed and the client moves to the next replica. Recovery
+timing is reconstructed from request timestamps and the approximately
+200\,ms monitor resolution, and is therefore approximate.
