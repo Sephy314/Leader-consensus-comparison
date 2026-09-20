@@ -3,7 +3,13 @@
 A reproducible benchmark laboratory comparing **Raft** (leader-based
 ordering) and **EPaxos** (leaderless ordering) using established upstream
 implementations. The lab is neutral: it measures, validates, and visualizes;
-it does not conclude which protocol is "better".
+the interpretation of the measurements belongs to the paper in `../paper/`.
+
+The full experiment matrix has been run and processed: `results/` holds 1,302
+raw runs (1,290 included after the documented contamination rule; 12 excluded
+and replaced) across 129 configurations and six families, with 10 repetitions
+per configuration, together with the processed metrics, the figures, and the
+self-contained HTML report.
 
 ## Layout
 
@@ -216,8 +222,9 @@ vendored upstream source.
 ## No fabricated results
 
 If a run fails, its status is `failed` with the reason recorded. Figures are
-only produced for experiments with valid data. The lab never fills in
-missing values or draws conclusions.
+only produced for experiments with valid data. The lab never fills in missing
+values and never invents a measurement; the interpretation of the measured
+dataset is left to `../paper/`.
 
 ## Dependency-set size (DS = 9)
 

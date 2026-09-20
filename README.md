@@ -4,7 +4,9 @@
 
 Research repository.
 
-> Status: Research in progress.
+> Status: the experiment matrix has been run and processed. The paper draft
+> reports the measurements in Sections 3–5; the abstract, threats to
+> validity, conclusion, and appendices are still being written.
 
 This repository contains a reproducible benchmark infrastructure (the
 **Consensus Lab**) for comparing the write path of two consensus protocols in
@@ -22,8 +24,23 @@ into a Docker image, and drives it with a controlled client harness to
 measure write throughput, write latency, write scalability, per-replica
 resource utilisation, and write behaviour during failures.
 
-> This is an experiment infrastructure, not a research paper. No conclusions
-> are drawn here; the experiments must be run before any claims can be made.
+> The lab does not modify the upstream consensus logic and does not favour
+> either protocol: it measures, validates, and reports. The interpretation of
+> the measurements is in `paper/`.
+
+## Status
+
+| Item | State |
+|------|-------|
+| Experiment matrix | run: 129 configurations, six families, 10 repetitions each |
+| Measured runs | 1,302 raw runs, 1,290 included; 12 excluded by the documented host-telemetry contamination rule and replaced |
+| Processed measurements | `lab/results/processed/` (per-run metrics, per-configuration summaries, failure and run indexes) |
+| Figures and report | `lab/results/figures/`, `lab/results/report/index.html` |
+| Paper draft | `paper/`: Sections 3–5 report the measurements; abstract, threats to validity, conclusion, and appendices are still to be written |
+
+`lab/results/` is generated and is not tracked by git; `make matrix`
+regenerates the dataset, and `make report` regenerates every figure and the
+HTML report from it.
 
 ## Structure
 
@@ -128,8 +145,10 @@ experiments are shown as "Experiment not yet run." instead of failing.
   leader-based and leaderless consensus respectively; they are not universal
   representatives of all protocols in each category.
 
-No claims are made that the experiments have demonstrated anything before the
-experiments are actually run.
+No claims are made about behaviour that was not measured: every reported
+number comes from `lab/results/` under the conditions documented in
+`docs/experiment-design.md`. These limitations apply to the measured dataset
+and to the results reported in the paper draft.
 
 ## License
 
