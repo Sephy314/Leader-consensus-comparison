@@ -176,6 +176,20 @@ func (r Run) Validate() error {
 	if r.Failure.Mode == FailureElection && r.Failure.FailedElections < 0 {
 		return fmt.Errorf("failure.failed_elections must be >= 0 for election mode")
 	}
+	// The measured phase must be long enough for the longest isolation
+	// (FailedElections * election_timeout) to expire and recovery to
+	// complete (up to two more randomized election timeouts, plus margin).
+	// Otherwise the cluster cannot reach its final state within the phase
+	// and the run would be recorded as failed by design.
+	if r.Failure.Mode == FailureElection {
+		isoS := float64(r.Failure.FailedElections) * float64(r.RaftElectionMS) / 1000.0
+		recoverS := 2 * float64(r.RaftElectionMS) / 1000.0
+		if r.Failure.AtS+isoS+recoverS+2.0 > float64(r.DurationS) {
+			return fmt.Errorf(
+				"election mode: at_s(%.1f) + isolation(%.1fs) + recovery(%.1fs) + margin(2s) = %.1fs exceeds duration_s(%d); the cluster could not recover within the measured phase",
+				r.Failure.AtS, isoS, recoverS, r.Failure.AtS+isoS+recoverS+2.0, r.DurationS)
+		}
+	}
 	if r.Failure.Mode == FailureReplica && r.Protocol != "epaxos" {
 		return fmt.Errorf("failure mode %q requires protocol epaxos", r.Failure.Mode)
 	}

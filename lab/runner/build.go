@@ -171,7 +171,6 @@ func cmdVersion(name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// runIDFor builds a stable run identifier from a configuration.
 // runIDFor builds a stable run identifier from a configuration. The
 // identifier encodes every independent variable needed to distinguish two
 // runs of the same experiment, so different configurations never collide.
@@ -183,6 +182,11 @@ func runIDFor(cfg labcfg.Run, rep int) string {
 			return fmt.Sprintf("%s-%s-%s-r%d-e%d-%d", experiment, cfg.Failure.Mode, cfg.Protocol, cfg.Replicas, cfg.Failure.FailedElections, rep)
 		}
 		return fmt.Sprintf("%s-%s-%s-r%d-%d", experiment, cfg.Failure.Mode, cfg.Protocol, cfg.Replicas, rep)
+	case "election":
+		// The election experiment's independent variable (target number of
+		// failed elections) is part of the run ID, so the target is never
+		// conflated with the repetition.
+		return fmt.Sprintf("%s-%s-r%d-e%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.Failure.FailedElections, rep)
 	case "conflict":
 		return fmt.Sprintf("%s-%s-r%d-x%d-w%d-c%d-%d", experiment, cfg.Protocol, cfg.Replicas, cfg.ConflictPct, cfg.WritePct, cfg.Concurrency, rep)
 	case "concurrency":

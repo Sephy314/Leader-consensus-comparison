@@ -51,3 +51,25 @@ type IsolateArgs struct {
 type IsolateReply struct {
 	OK bool
 }
+
+// ElectionStatsArgs/ElectionStatsReply expose the lab's measured
+// election-failure counters for Raft. The runner queries every surviving
+// replica after an election-failure run; the report derives the ACTUAL
+// number of failed elections from these counters (never from the configured
+// target).
+type ElectionStatsArgs struct {
+}
+
+type ElectionStatsReply struct {
+	// DroppedPreVotes is the number of RequestPreVote messages this replica
+	// dropped while its transport was isolated. HashiCorp Raft enables
+	// pre-vote by default, so a failed election attempt manifests as a
+	// pre-vote round that receives no response: the node never becomes a
+	// candidate and retries after the next randomized election timeout.
+	// Each dropped pre-vote is therefore one failed election attempt.
+	DroppedPreVotes int64
+	// DroppedVotes is the number of RequestVote messages dropped while
+	// isolated. With pre-vote enabled this is expected to be ~0; it is a
+	// cross-check, not the primary counter.
+	DroppedVotes int64
+}

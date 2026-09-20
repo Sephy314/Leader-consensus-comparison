@@ -123,14 +123,21 @@ func (r *nopReadCloser) Close() error { return nil }
 // ---- election-failure injection ----
 
 // fakeTransport counts RequestVote calls so the isolation wrapper can be
-// verified without a real network.
+// verified without a real network. It also implements RequestPreVote (a
+// separate RPC in HashiCorp Raft v1.7.3), which the wrapper passes through.
 type fakeTransport struct {
 	raft.Transport // embedded; unused methods are nil
 	voteCalls      int
+	preVoteCalls   int
 }
 
 func (f *fakeTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
 	f.voteCalls++
+	return nil
+}
+
+func (f *fakeTransport) RequestPreVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestPreVoteRequest, resp *raft.RequestPreVoteResponse) error {
+	f.preVoteCalls++
 	return nil
 }
 
@@ -163,6 +170,71 @@ func TestIsolatingTransportDropsWhileIsolated(t *testing.T) {
 	}
 	if base.voteCalls != 0 {
 		t.Fatalf("base transport should not be called while isolated, got %d", base.voteCalls)
+	}
+}
+
+// TestIsolatingTransportCountsDroppedVotes verifies the measured
+// election-failure counters: each dropped RequestPreVote (a failed pre-vote
+// round) is part of one failed election attempt, and dropped RequestVote is
+// the cross-check.
+func TestIsolatingTransportCountsDroppedVotes(t *testing.T) {
+	base := &fakeTransport{}
+	iso := &isolatingTransport{Transport: base}
+	iso.isolateFor(50 * time.Millisecond)
+
+	vote := &raft.RequestVoteRequest{}
+	pre := &raft.RequestPreVoteRequest{}
+	vresp := &raft.RequestVoteResponse{}
+	presp := &raft.RequestPreVoteResponse{}
+	for i := 0; i < 3; i++ {
+		if err := iso.RequestPreVote("a", "b", pre, presp); err == nil {
+			t.Fatal("isolated transport should drop pre-vote requests")
+		}
+	}
+	if err := iso.RequestVote("a", "b", vote, vresp); err == nil {
+		t.Fatal("isolated transport should drop vote requests")
+	}
+	if got := iso.droppedPreVotes(); got != 3 {
+		t.Fatalf("droppedPreVotes = %d, want 3", got)
+	}
+	if got := iso.droppedVotes(); got != 1 {
+		t.Fatalf("droppedVotes = %d, want 1", got)
+	}
+	if base.voteCalls != 0 || base.preVoteCalls != 0 {
+		t.Fatalf("base transport should not receive requests while isolated (votes=%d preVotes=%d)",
+			base.voteCalls, base.preVoteCalls)
+	}
+	// After expiry, nothing is dropped and the counters stay put.
+	time.Sleep(60 * time.Millisecond)
+	if err := iso.RequestPreVote("a", "b", pre, presp); err != nil {
+		t.Fatalf("pre-vote after expiry should pass: %v", err)
+	}
+	if got := iso.droppedPreVotes(); got != 3 {
+		t.Fatalf("droppedPreVotes changed after expiry: %d", got)
+	}
+}
+
+// TestReplicaElectionStatsRPC verifies the ElectionStats RPC reports the
+// transport counters.
+func TestReplicaElectionStatsRPC(t *testing.T) {
+	base := &fakeTransport{}
+	iso := &isolatingTransport{Transport: base}
+	rep := &Replica{iso: iso}
+	iso.isolateFor(50 * time.Millisecond)
+
+	pre := &raft.RequestPreVoteRequest{}
+	presp := &raft.RequestPreVoteResponse{}
+	_ = iso.RequestPreVote("a", "b", pre, presp)
+
+	var reply proto.ElectionStatsReply
+	if err := rep.ElectionStats(&proto.ElectionStatsArgs{}, &reply); err != nil {
+		t.Fatalf("ElectionStats: %v", err)
+	}
+	if reply.DroppedPreVotes != 1 {
+		t.Fatalf("DroppedPreVotes = %d, want 1", reply.DroppedPreVotes)
+	}
+	if reply.DroppedVotes != 0 {
+		t.Fatalf("DroppedVotes = %d, want 0", reply.DroppedVotes)
 	}
 }
 

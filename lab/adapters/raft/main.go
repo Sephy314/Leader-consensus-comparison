@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"conslab/internal/proto"
@@ -173,6 +174,19 @@ func (r *Replica) Stats(args *proto.StatsArgs, reply *proto.StatsReply) error {
 	return nil
 }
 
+// ElectionStats reports the measured election-failure counters (see
+// proto.ElectionStatsReply). The runner queries every surviving replica
+// after an election-failure run; the report derives the actual number of
+// failed elections from these counters.
+func (r *Replica) ElectionStats(args *proto.ElectionStatsArgs, reply *proto.ElectionStatsReply) error {
+	if r.iso == nil {
+		return nil
+	}
+	reply.DroppedPreVotes = r.iso.droppedPreVotes()
+	reply.DroppedVotes = r.iso.droppedVotes()
+	return nil
+}
+
 // IsolateElections is the election-failure injection hook. It makes this
 // replica's Raft transport drop RequestVote/RequestPreVote for the requested
 // duration, so the next election attempt(s) fail to obtain a quorum. The
@@ -196,10 +210,22 @@ func (r *Replica) IsolateElections(args *proto.IsolateArgs, reply *proto.Isolate
 // isolated. This is the mechanism behind the election-failure experiment:
 // with votes unreachable, a candidate's election attempt fails; when the
 // isolation is cleared, the next attempt succeeds.
+//
+// The wrapper also counts the vote requests it drops. HashiCorp Raft v1.7.3
+// implements pre-vote as a SEPARATE RPC (RequestPreVote) and enables it by
+// default. A failed election attempt therefore manifests as a pre-vote round
+// that receives no response: the candidate sends RequestPreVote to every
+// peer, all are dropped while isolated, and the node retries after the next
+// randomized election timeout. droppedPreVotes is thus the primary measured
+// counter (each failed attempt = one pre-vote round = replicas-1 dropped
+// pre-votes); droppedVotes is a cross-check (expected ~0 while pre-vote is
+// enabled, because the pre-vote fails before a real vote is sent).
 type isolatingTransport struct {
 	raft.Transport
 	mu           sync.Mutex
 	isolateUntil time.Time
+	droppedPreV  int64 // atomic; RequestPreVote dropped while isolated (primary)
+	droppedV     int64 // atomic; RequestVote dropped while isolated (cross-check)
 }
 
 func (t *isolatingTransport) isolateFor(d time.Duration) {
@@ -220,13 +246,31 @@ func (t *isolatingTransport) isolated() bool {
 	return time.Now().Before(t.isolateUntil)
 }
 
-// RequestVote drops both RequestVote and RequestPreVote (the pre-vote flag is
-// carried in the request) while isolated.
+func (t *isolatingTransport) droppedPreVotes() int64 { return atomic.LoadInt64(&t.droppedPreV) }
+func (t *isolatingTransport) droppedVotes() int64    { return atomic.LoadInt64(&t.droppedV) }
+
+// RequestVote drops real vote requests while isolated and counts the drops.
 func (t *isolatingTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
 	if t.isolated() {
+		atomic.AddInt64(&t.droppedV, 1)
 		return fmt.Errorf("transport isolated: vote request dropped (election-failure injection)")
 	}
 	return t.Transport.RequestVote(id, target, args, resp)
+}
+
+// RequestPreVote drops pre-vote requests while isolated and counts the drops.
+// Each dropped pre-vote is part of one failed election attempt (the
+// candidate's pre-vote round). Pre-vote is a separate interface
+// (raft.WithPreVote) in HashiCorp Raft v1.7.3.
+func (t *isolatingTransport) RequestPreVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestPreVoteRequest, resp *raft.RequestPreVoteResponse) error {
+	if t.isolated() {
+		atomic.AddInt64(&t.droppedPreV, 1)
+		return fmt.Errorf("transport isolated: pre-vote request dropped (election-failure injection)")
+	}
+	if pv, ok := t.Transport.(raft.WithPreVote); ok {
+		return pv.RequestPreVote(id, target, args, resp)
+	}
+	return fmt.Errorf("underlying transport does not support pre-vote")
 }
 
 func (r *Replica) handlePropose(prop *proto.Propose, w *bufio.Writer) {

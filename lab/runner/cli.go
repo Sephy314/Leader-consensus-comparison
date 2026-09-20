@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,7 +29,7 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	results := runConfigs([]labcfg.Run{cfg}, *rep)
+	results := runConfigs([]labcfg.Run{cfg}, *rep, 0, false)
 	return summarize(results)
 }
 
@@ -91,6 +92,7 @@ type ElectionSpec struct {
 	WritePct        int     `json:"write_pct"`
 	Concurrency     int     `json:"concurrency"`
 	AtS             float64 `json:"at_s"`
+	DurationS       int     `json:"duration_s"`
 	FailedElections []int   `json:"failed_elections"`
 }
 
@@ -110,8 +112,14 @@ func cmdMatrix(args []string) error {
 	configPath := fs.String("config", "configs/matrix.json", "matrix config")
 	only := fs.String("only", "", "run only this experiment family (workload|scaling|conflict|concurrency|failure|election)")
 	limit := fs.Int("limit", 0, "limit number of runs (0 = no limit)")
+	scheduleSeed := fs.Int64("schedule-seed", 1, "seed for the blocked-randomization execution schedule (recorded in the manifest)")
+	skipExisting := fs.Bool("skip-existing", false, "skip runs that already completed in an earlier batch (resume an interrupted matrix)")
+	rerun := fs.Bool("rerun-contaminated", false, "re-run only the attempts flagged contaminated by host anomalies (the originals are kept)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *rerun {
+		return rerunFlaggedContaminated(*scheduleSeed)
 	}
 	spec, err := loadMatrix(*configPath)
 	if err != nil {
@@ -122,7 +130,7 @@ func cmdMatrix(args []string) error {
 		configs = configs[:*limit]
 	}
 	fmt.Printf("matrix: %d run configurations\n", len(configs))
-	results := runConfigs(configs, 0)
+	results := runConfigs(configs, 0, *scheduleSeed, *skipExisting)
 	return summarize(results)
 }
 
@@ -229,6 +237,13 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			cfg.WritePct = spec.Election.WritePct
 			cfg.ReadPct = 100 - spec.Election.WritePct
 			cfg.Concurrency = spec.Election.Concurrency
+			// The measured phase must be long enough for the longest
+			// isolation (FailedElections * election_timeout) to expire and
+			// recovery to complete; otherwise the run cannot reach its
+			// final state and is correctly recorded as failed.
+			if spec.Election.DurationS > 0 {
+				cfg.DurationS = spec.Election.DurationS
+			}
 			cfg.Failure = labcfg.Failure{
 				Mode:            labcfg.FailureElection,
 				AtS:             spec.Election.AtS,
@@ -240,36 +255,122 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 	return out
 }
 
+// minRepetitions is the minimum number of independent repetitions for a
+// measured experiment. Below this the dispersion and trend claims the report
+// makes are not statistically defensible. Smoke tests are functional gates
+// and are exempt (they do not go through runConfigs).
+const minRepetitions = 10
+
+// schedInfo records where a run sits in the blocked-randomization schedule.
+// It is recorded in the run's metadata and in the execution manifest so the
+// actual execution order can be audited against the intended schedule.
+type schedInfo struct {
+	block int   // block (repetition pass) this run belongs to
+	seq   int   // global sequence index in the schedule
+	seed  int64 // schedule seed (recorded for reproducibility)
+	// rerunOf is set only for replacement runs created by
+	// --rerun-contaminated: the run ID of the attempt being replaced, and
+	// why. The original attempt is never deleted or modified.
+	rerunOf     string
+	rerunReason string
+}
+
+// schedItem is one (configuration, repetition) pair in the schedule.
+type schedItem struct {
+	cfg labcfg.Run
+	rep int
+}
+
+// buildSchedule produces the blocked-randomization execution order.
+//
+// Block b contains every (configuration, repetition b) pair exactly once, in
+// an order shuffled with a seeded RNG. This guarantees that every condition
+// is represented throughout the experiment timeline (no condition is
+// concentrated at the start or end) while the exact order is reproducible
+// from the recorded schedule seed. Conditions are therefore not confounded
+// with wall-clock execution time.
+func buildSchedule(configs []labcfg.Run, seed int64) []schedItem {
+	rng := rand.New(rand.NewSource(seed))
+	byRep := map[int][]labcfg.Run{}
+	maxRep := 0
+	for _, cfg := range configs {
+		for rep := 1; rep <= cfg.Repetitions; rep++ {
+			byRep[rep] = append(byRep[rep], cfg)
+			if rep > maxRep {
+				maxRep = rep
+			}
+		}
+	}
+	var out []schedItem
+	for rep := 1; rep <= maxRep; rep++ {
+		cfgs := byRep[rep]
+		rng.Shuffle(len(cfgs), func(i, j int) { cfgs[i], cfgs[j] = cfgs[j], cfgs[i] })
+		for _, cfg := range cfgs {
+			out = append(out, schedItem{cfg: cfg, rep: rep})
+		}
+	}
+	return out
+}
+
 // runConfigs executes a list of configurations, applying the given repetition
-// selection (0 = run every configured repetition).
-func runConfigs(configs []labcfg.Run, singleRep int) []runResult {
+// selection (0 = run every configured repetition). Every measured
+// configuration must have at least minRepetitions independent repetitions;
+// the runner fails loudly rather than silently under-sampling.
+//
+// Unless a single repetition is requested, the execution order is a
+// reproducibly randomized blocked schedule (see buildSchedule): conditions
+// are interleaved across the timeline instead of being run in blocks, so the
+// treatment variable is not confounded with wall-clock time.
+//
+// skipExisting is the resume path: a run that already completed in an earlier
+// batch is not repeated. Its original schedule position stays recorded in its
+// metadata, so the schedule remains reproducible across batches.
+func runConfigs(configs []labcfg.Run, singleRep int, scheduleSeed int64, skipExisting bool) []runResult {
+	env := measuredEnv()
+	fmt.Printf("batch %s\n", env.batchID)
+	for _, cfg := range configs {
+		if singleRep == 0 && cfg.Repetitions < minRepetitions {
+			fmt.Fprintf(os.Stderr, "error: %s requires %d repetitions, got %d (minimum %d); refusing to under-sample\n",
+				runIDFor(cfg, 1), cfg.Repetitions, cfg.Repetitions, minRepetitions)
+			return []runResult{{RunID: runIDFor(cfg, 1), Status: "failed", Reason: fmt.Sprintf(
+				"repetitions %d < minimum %d", cfg.Repetitions, minRepetitions)}}
+		}
+	}
+
+	var schedule []schedItem
+	if singleRep > 0 {
+		// A single explicitly requested repetition: no schedule needed.
+		for _, cfg := range configs {
+			schedule = append(schedule, schedItem{cfg: cfg, rep: singleRep})
+		}
+	} else {
+		schedule = buildSchedule(configs, scheduleSeed)
+		fmt.Printf("schedule: %d runs, seed %d, %d blocks\n", len(schedule), scheduleSeed, schedule[0].cfg.Repetitions)
+	}
+
 	var results []runResult
-	total := 0
-	for _, cfg := range configs {
-		reps := cfg.Repetitions
-		if singleRep > 0 {
-			reps = 1
+	skipped := 0
+	for i, item := range schedule {
+		cfg, rep := item.cfg, item.rep
+		var sched *schedInfo
+		if singleRep == 0 {
+			sched = &schedInfo{block: rep, seq: i + 1, seed: scheduleSeed}
 		}
-		total += reps
+		if skipExisting && runCompleted(cfg, rep, env.root) {
+			skipped++
+			continue
+		}
+		fmt.Printf("\n=== [%d/%d] %s %s replicas=%d w=%d c=%d failure=%s (rep %d) ===\n",
+			i+1, len(schedule), cfg.Protocol, experimentName(cfg), cfg.Replicas, cfg.WritePct, cfg.Concurrency, cfg.Failure.Mode, rep)
+		start := time.Now()
+		res := executeRun(cfg, rep, env, sched)
+		fmt.Printf("[%s] %s (%s) in %.1fs\n", res.RunID, res.Status, res.Reason, time.Since(start).Seconds())
+		results = append(results, res)
 	}
-	done := 0
-	for _, cfg := range configs {
-		reps := cfg.Repetitions
-		startRep := 1
-		if singleRep > 0 {
-			reps = singleRep
-			startRep = singleRep
-		}
-		for rep := startRep; rep < startRep+reps; rep++ {
-			done++
-			fmt.Printf("\n=== [%d/%d] %s %s replicas=%d w=%d c=%d failure=%s (rep %d) ===\n",
-				done, total, cfg.Protocol, experimentName(cfg), cfg.Replicas, cfg.WritePct, cfg.Concurrency, cfg.Failure.Mode, rep)
-			start := time.Now()
-			res := executeRun(cfg, rep)
-			fmt.Printf("[%s] %s (%s) in %.1fs\n", res.RunID, res.Status, res.Reason, time.Since(start).Seconds())
-			results = append(results, res)
-		}
+	if skipped > 0 {
+		fmt.Printf("resumed: %d of %d scheduled runs already completed and were skipped\n", skipped, len(schedule))
 	}
+	writeExecutionManifest(env, scheduleSeed)
 	return results
 }
 

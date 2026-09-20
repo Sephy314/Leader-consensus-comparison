@@ -23,6 +23,10 @@ func runSmoke(s SmokeSpec) error {
 	applyRunDefaults(&s.Basic, base)
 	applyRunDefaults(&s.Small, base)
 
+	// Smoke runs are functional gates, not measured experiments: they write
+	// to results/smoke-raw so they never pollute the measured dataset.
+	env := smokeEnv()
+
 	fmt.Println("################ SMOKE STAGE 1/6: build ################")
 	if err := cmdBuild(); err != nil {
 		return fmt.Errorf("stage 1 (build) failed: %w", err)
@@ -40,7 +44,7 @@ func runSmoke(s SmokeSpec) error {
 	for _, proto := range []string{"raft", "epaxos"} {
 		cfg := clusterCfg
 		cfg.Protocol = proto
-		res := executeRun(cfg, 1)
+		res := executeRun(cfg, 1, env, nil)
 		if res.Status != "success" {
 			return fmt.Errorf("stage 2 (%s minimal cluster) failed: %s", proto, res.Reason)
 		}
@@ -59,7 +63,7 @@ func runSmoke(s SmokeSpec) error {
 			cfg.WarmupS = 1
 			cfg.Repetitions = 1
 			cfg.Concurrency = 2
-			res := executeRun(cfg, 1)
+			res := executeRun(cfg, 1, env, nil)
 			if res.Status != "success" {
 				return fmt.Errorf("stage 3 (%s %d%% writes) failed: %s", proto, w, res.Reason)
 			}
@@ -83,7 +87,7 @@ func runSmoke(s SmokeSpec) error {
 		cfg := s.Small
 		cfg.Protocol = proto
 		cfg.Repetitions = 1
-		res := executeRun(cfg, 1)
+		res := executeRun(cfg, 1, env, nil)
 		if res.Status != "success" {
 			return fmt.Errorf("stage 4 (%s small workload) failed: %s", proto, res.Reason)
 		}
@@ -106,7 +110,7 @@ func runSmoke(s SmokeSpec) error {
 		cfg.Concurrency = c.Concurrency
 		cfg.Repetitions = 1
 		cfg.Failure = labcfg.Failure{Mode: c.Mode, AtS: c.AtS, RestartAfterS: c.RestartAfterS}
-		res := executeRun(cfg, 1)
+		res := executeRun(cfg, 1, env, nil)
 		if res.Status != "success" {
 			return fmt.Errorf("stage 5 (%s %s failure) failed: %s", c.Protocol, c.Mode, res.Reason)
 		}
