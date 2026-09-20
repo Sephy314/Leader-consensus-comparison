@@ -111,11 +111,27 @@ Failure injection is deterministic: the runner kills a container with
 - **Raft follower failure**: a non-leader replica is killed.
 - **EPaxos replica failure**: replica 0 is killed; the client moves to the
   next replica.
+- **Election-failure (Raft)**: the leader is killed and the surviving
+  replicas' Raft transport is isolated (drops `RequestVote`/`RequestPreVote`)
+  for `target × election_timeout` ms, inducing repeated failed election
+  attempts. The actual number of failed elections is measured from the
+  adapters' dropped-message counters, never assumed from the target.
 
 The failure timeline is reconstructed from `events.csv` (failure injected,
 leader observed, restart issued) and per-request timestamps. Recovery timing
 is approximate: it is derived from request timestamps and the ~200ms monitor
 resolution, and is labeled as such.
+
+Two recovery metrics are reported for election runs:
+
+- **Availability gap**: the largest interval with no successful completion
+  after the leader kill. This includes the isolation duration, which is
+  proportional to the target, so its correlation with the measured election
+  count is partly mechanical.
+- **Recovery from isolation end**: the time from the end of the isolation
+  window to the first successful request. This is decoupled from the
+  injection duration and measures only the recovery behaviour after the
+  injection has expired.
 
 ## 7. Reproducibility
 

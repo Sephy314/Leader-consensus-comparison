@@ -1,0 +1,115 @@
+% Revised experimental protocol — writeup for the paper's
+% Experimental Design / Methodology section.
+%
+% This replaces the "three repetitions, fixed seed, blocked condition order"
+% description with the revised protocol. It is written to be dropped into
+% paper/sections/03-experimental-setup.tex (the Testbed Configuration and
+% Experiment Suite subsections). The numbers (10 repetitions, 20 s phase,
+% etc.) match lab/configs/matrix.json and lab/docs/benchmark-protocol-v2.md.
+
+\subsection{Testbed Configuration and Parameters}
+
+All runs use a 20-second measured phase with a 3-second warm-up. Each
+replica container is allocated 2.0 CPUs and 512\,MB of memory; the client
+gets 2.0 CPUs and 512\,MB, and the master 1.0 CPU and 256\,MB.
+\texttt{GOMAXPROCS} is set to 4 for every replica in both protocols. The
+request timeout is 2{,}000\,ms. Raft uses a 1{,}000\,ms heartbeat timeout, a
+2{,}000\,ms election timeout, a snapshot threshold of 8{,}192 entries, and
+1{,}024 trailing logs.
+
+The experiment dimensions are: replica count (3, 5, 7, 9), write ratio
+(0, 10, 50, 90, 100\,\%), conflict ratio (0, 10, 25, 50, 75, 90, 100\,\%),
+and client concurrency (1, 2, 4, 8, 16, 32, 64, 128, 256).
+
+\subsection{Repetitions, Isolation, and Randomization}
+
+Every measured configuration is executed with at least ten independent
+repetitions. Each repetition is a fresh Docker Compose project: new
+containers, new networks, and new volumes. Raft's persisted state (term,
+voted-for, log, snapshots, cluster membership) lives in per-replica volumes
+that are destroyed after every repetition and verified removed; persistence
+is not part of any experiment, so no consensus state survives between
+repetitions. EPaxos state is in-memory by construction. Before each
+repetition the harness verifies that the environment is clean (ports free,
+no leftover containers, volumes, or networks); after each repetition it
+verifies that teardown removed everything. A repetition that cannot be
+isolated is recorded as failed, never silently reused.
+
+To prevent experimental conditions from being confounded with wall-clock
+time, conditions are not executed in blocks. Instead, the runner uses
+blocked randomization: repetition block $b$ contains every configuration
+exactly once, in an order shuffled with a seeded random number generator.
+The schedule seed is recorded, so the exact execution order is reproducible.
+The actual execution order is reconstructed from per-run timestamps after
+the run and audited for overlaps, gaps, and condition grouping.
+
+Each repetition uses an independent workload seed (base seed plus repetition
+index), recorded in the run's metadata, so no two repetitions replay the
+same workload sequence and any anomalous run can be reproduced exactly.
+
+\subsection{Anomaly Handling}
+
+Host-level telemetry (load average and available memory, sampled at
+200\,ms) is recorded for every run. Host suspension, scheduling gaps, CPU
+starvation, and clock jumps are detected and recorded per run. Anomalous
+runs are marked and reported; they are never silently deleted. No run was
+excluded from the results reported here.
+
+\subsection{Experiment Suite}
+
+The experiment suite consists of six families, each with ten repetitions:
+
+\begin{itemize}
+\item \textbf{Workload}: write ratio sweep at 3 replicas and 8 concurrency
+  levels (1--128), 2 protocols.
+\item \textbf{Scaling}: replica count sweep (3--9) at 100\,\% writes and
+  concurrency 32, 2 protocols.
+\item \textbf{Conflict}: conflict ratio sweep (0--100\,\%) at 3 replicas,
+  100\,\% writes, and concurrency 32, 2 protocols.
+\item \textbf{Concurrency}: concurrency sweep (1--256) at 3 replicas and
+  100\,\% writes, 2 protocols.
+\item \textbf{Election}: Raft leader-election disruption: the leader is
+  killed and the surviving replicas' Raft transport is isolated so that
+  election attempts fail. The independent variable is the \emph{measured}
+  number of failed elections (the sum of dropped pre-vote and vote requests
+  across replicas, divided by the number of peers), not the configured
+  target; the target is a nominal setting only. The measured phase is long
+  enough for the longest isolation to expire and recovery to complete; a
+  run whose cluster does not recover within the phase is recorded as
+  failed.
+\item \textbf{Failure}: Raft leader kill, Raft follower kill, and EPaxos
+  replica kill at 3 replicas, 100\,\% writes, and concurrency 32.
+\end{itemize}
+
+Failure injection is deterministic: the runner kills a container with
+\texttt{docker kill} at a configured offset into the measured phase. For
+Raft leader failure, the runner queries the raft master for the current
+leader, maps it to the container hostname, and kills it; the client observes
+the election and reconnects to the new leader. For EPaxos replica failure,
+replica 0 is killed and the client moves to the next replica. Recovery
+timing is reconstructed from request timestamps and the approximately
+200\,ms monitor resolution, and is therefore approximate.
+
+\subsection{Statistical Reporting}
+
+All aggregates are computed from the raw per-run observations. Every
+reported value carries its sample size $n$; means are reported with sample
+standard deviation and 95\,\% confidence intervals (Student's $t$). Latency
+distributions are reported as p50/p95/p99. For the election experiment we
+report the Pearson correlation between the measured number of failed
+elections and the availability gap, with $n$ and a $t$-based $p$-value, and
+we plot every observation. Outliers are not removed; no observation was
+excluded from the results reported here.
+
+The election availability gap includes the isolation duration by
+construction (the injection isolates the surviving replicas' transport for
+a duration proportional to the target), so a positive gap correlation is
+partly mechanical. To separate the injection duration from the recovery
+behaviour, we additionally report the recovery time measured from the end
+of the isolation window to the first successful request. This metric is
+decoupled from the injection duration; if it is roughly constant across the
+measured election count, the gap correlation is explained by the injection
+mechanism, and if it grows, the cluster requires additional time to
+stabilise after repeated failed elections. Both correlations are reported
+with their sample sizes and significance measures, and the interpretation
+is left to the data.

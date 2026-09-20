@@ -121,8 +121,12 @@ Run one experiment independently:
 
 ## Experiments
 
+Every measured configuration runs at least 10 independent repetitions
+(fresh containers, networks, volumes, and workload seeds per repetition;
+conditions executed in reproducibly randomized blocks).
+
 - **Workload**: 100R/0W, 90R/10W, 50R/50W, 10R/90W, 0R/100W × concurrency
-  1,2,4,8,16,32,64,128 × Raft, EPaxos × 3 repetitions.
+  1,2,4,8,16,32,64,128 × Raft, EPaxos.
 - **Scaling**: 3,5,7,9 replicas, 100% write, both protocols.
 - **Conflict-rate sensitivity**: 0,10,25,50,75,90,100% of requests targeting
   shared hot keys, 100% write, both protocols. The realized hot-key fraction
@@ -135,8 +139,11 @@ Run one experiment independently:
   replicas' Raft transport is isolated for `failed_elections ×
   election_timeout` so the next election attempt(s) fail. The injection is a
   fault hook around the existing transport (`IsolateElections` RPC);
-  HashiCorp Raft's election algorithm is not modified. The actual recovery
-  time is measured from the leader-election log transitions.
+  HashiCorp Raft's election algorithm is not modified. The actual number of
+  failed elections is measured from the adapters' dropped-message counters
+  (never assumed from the target). Two recovery metrics are reported: the
+  availability gap (which includes the isolation duration) and the recovery
+  time from the end of the isolation window (decoupled from the injection).
 - **Failure**: Raft leader failure, Raft follower failure, EPaxos replica
   failure, under sustained write load.
 
@@ -145,6 +152,25 @@ read-semantics), raw `requests.csv` (per-request metadata), raw
 `resources.csv` (per-replica samples), and `events.csv` (failure/leader/phase
 timeline). Failed runs are recorded in `results/run-index.csv` and never
 silently discarded.
+
+The suite runs for many hours, so it is written to survive interruption:
+
+```sh
+make matrix             # resumes: completed runs are skipped (--skip-existing)
+make manifest           # rebuild results/execution-manifest.json from the completed runs
+make rerun-contaminated # replace attempts that host telemetry flagged contaminated
+```
+
+`metadata.json` is written last, so a directory without it is not a completed
+run: it is ignored by the report and re-run in place. `results/execution-manifest.json`
+records the actual execution order, every batch ID, the inter-run gaps, the
+cleanup failures and the host anomalies, all derived from the run timestamps
+rather than from the intended schedule. Runs whose host telemetry was flagged
+contaminated (e.g. the laptop suspended mid-run) are excluded from every
+aggregate by one documented rule (`report/process.py:mark_included`) and
+replaced, so each condition keeps its full set of repetitions; excluded runs
+stay in the dataset and are counted in the report's Execution Integrity
+section.
 
 ## Tests
 

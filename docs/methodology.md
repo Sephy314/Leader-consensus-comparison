@@ -100,8 +100,12 @@ Each run has a warm-up phase (not recorded) followed by a measured phase
 
 ### 4.4 Repetitions
 
-Each configuration is repeated 3 times by default. The report shows the mean
-over repetitions; latency is reported as percentiles, not only the mean.
+Each configuration is repeated at least 10 times (the runner refuses to
+under-sample). The report shows the mean over repetitions with the sample
+size, standard deviation, and 95\,\% confidence interval; latency is
+reported as percentiles, not only the mean. Each repetition is an
+independent run: fresh containers, networks, and volumes, an independent
+workload seed, and a randomized position in the execution schedule.
 
 ## 5. Fairness controls
 

@@ -82,12 +82,45 @@ make matrix
 
 The full matrix is defined in `lab/configs/matrix.json`:
 
-- **Workload**: 5 mixes × 8 concurrency levels × 2 protocols × 3 reps.
-- **Scaling**: 4 replica counts × 2 protocols × 3 reps.
-- **Conflict**: 7 conflict rates × 2 protocols × 3 reps.
-- **Concurrency**: 9 concurrency levels × 2 protocols × 3 reps.
-- **Election**: 6 failed-election targets × 3 reps (Raft).
-- **Failure**: 3 failure types × 3 reps.
+- **Workload**: 5 mixes × 8 concurrency levels × 2 protocols × 10 reps.
+- **Scaling**: 4 replica counts × 2 protocols × 10 reps.
+- **Conflict**: 7 conflict rates × 2 protocols × 10 reps.
+- **Concurrency**: 9 concurrency levels × 2 protocols × 10 reps.
+- **Election**: 6 failed-election targets × 10 reps (Raft).
+- **Failure**: 3 failure types × 10 reps.
+
+Every measured configuration runs at least 10 independent repetitions; the
+runner refuses to under-sample. Each repetition is a fresh Docker Compose
+project (new containers, networks, volumes), torn down and verified after
+the run. Conditions are executed in reproducibly randomized blocks
+(`--schedule-seed`), and each repetition uses an independent workload seed
+(`seed_used = base + rep`, recorded in `metadata.json`).
+
+The suite takes many hours, so it is interrupted by host restarts and
+suspends. Resuming is safe:
+
+```sh
+make matrix            # same as: runner matrix --skip-existing
+```
+
+`--skip-existing` skips runs that already completed and continues the rest
+in their original schedule positions (the schedule is a function of the
+configuration list and the recorded seed). `metadata.json` is written last,
+so "metadata.json exists" defines a completed run: a directory left by a
+killed runner is not part of the dataset and is re-run in place. A dataset
+may therefore span several batches; each run records its `batch_id`, and the
+execution manifest and report list every batch plus the wall-clock gap.
+
+```sh
+make manifest           # rebuild results/execution-manifest.json from the completed runs
+make rerun-contaminated # re-run attempts flagged contaminated by host anomalies
+```
+
+Host suspension (a laptop sleeping) is detected per run as a telemetry gap.
+Such runs are excluded from every aggregate and replaced by
+`rerun-contaminated`, so each condition keeps its full set of repetitions.
+The replacement is a new run recording `rerun_of`/`rerun_reason`; the
+original attempt is kept in the dataset and in the manifest.
 
 ## 7. Report generation
 
@@ -119,6 +152,9 @@ make validate
 ```
 lab/results/
 ├── run-index.csv              every run outcome (append-only, includes failures)
+├── execution-manifest.json    actual execution order, batches, gaps, anomalies
+├── logs/                      runner logs of each batch (survive a host restart)
+├── archive/                   pre-audit dataset and interrupted runs (kept as evidence)
 ├── raw/<run-id>/
 │   ├── metadata.json          exact config, versions, host, status, read semantics
 │   ├── requests.csv           per-request raw measurements
@@ -130,9 +166,10 @@ lab/results/
 │   ├── compose.yaml           exact orchestration used
 │   └── container-logs.txt     all container logs (post-mortem)
 ├── processed/
-│   ├── metrics.csv            aggregated per-run metrics
+│   ├── metrics.csv            aggregated per-run metrics (included=1/0 per run)
 │   ├── resources.csv          aggregated per-replica resources
 │   ├── failures.json          failure/recovery timelines
+│   ├── config-summary.csv     per-condition n, mean, median, SD, 95% CI
 │   └── run-index.json         validation results per run
 ├── figures/                   generated figures (only for valid data)
 └── report/index.html          self-contained HTML report
@@ -140,9 +177,16 @@ lab/results/
 
 ## 9. Data integrity rules
 
-- Raw results are never overwritten; each run gets a unique identifier.
+- Raw results are never overwritten; each run gets a unique identifier. A
+  replacement run for a contaminated repetition gets a new identifier
+  (`<id>-2`) rather than overwriting the attempt it replaces.
 - Failed runs are recorded in `results/run-index.csv` with their reason and
   are never silently discarded.
+- Host anomalies (suspend, CPU starvation, clock jump) are detected per run,
+  recorded in `metrics.csv`/`run-index.json`/the execution manifest, and
+  excluded from aggregates by one rule (`process.py:mark_included`), which
+  prefers a replacement run when one exists. Excluded runs are reported in
+  the report's Execution Integrity section, never hidden.
 - Warm-up data is never mixed into steady-state results.
 - All figures and the HTML report are generated programmatically from
   measured data; no benchmark result is hardcoded.
