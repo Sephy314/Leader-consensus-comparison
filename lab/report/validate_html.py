@@ -75,6 +75,20 @@ def main():
         if resources and 'id="resources"' not in html:
             errors.append("missing section #resources (resource data exists)")
 
+    # Execution Integrity section is required when the manifest exists.
+    manifest_path = os.path.join(os.path.dirname(args.processed), "execution-manifest.json")
+    if os.path.exists(manifest_path):
+        if 'id="integrity"' not in html:
+            errors.append("missing section #integrity (execution manifest exists)")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        if "Randomization seed" not in html:
+            errors.append("execution integrity section missing the randomization seed")
+        if manifest.get("batch_ids") and "Batch IDs" not in html:
+            errors.append("execution integrity section does not list the dataset batches")
+        if "Excluded from aggregates" not in html:
+            errors.append("execution integrity section does not report excluded runs")
+
     # 3. Summary consistency with underlying data.
     run_index = load_json(os.path.join(args.processed, "run-index.json"))
     total = len(run_index)

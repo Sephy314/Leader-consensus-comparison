@@ -32,8 +32,13 @@ import json
 import os
 import re
 import statistics
+import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape as _xml_escape
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import stats as labstats
 
 NAN_LABEL = "N/A"
 FAILED_LABEL = "FAILED"
@@ -111,6 +116,11 @@ class Dataset:
             os.path.join(processed, "failures.json")) else []
         self.run_index = load_json(os.path.join(processed, "run-index.json")) if os.path.exists(
             os.path.join(processed, "run-index.json")) else []
+
+        # Execution manifest (actual execution order, randomization seed,
+        # gaps, overlaps, cleanup failures, host anomalies).
+        manifest_path = os.path.join(os.path.dirname(processed), "execution-manifest.json")
+        self.manifest = load_json(manifest_path) if os.path.exists(manifest_path) else None
 
         self.matrix = {}
         if os.path.exists(config_path):
@@ -234,13 +244,44 @@ class Dataset:
     def figure_count(self):
         return sum(len(files) for files in self.figure_categories.values())
 
+    def included_failures(self):
+        """Failure records that passed the run-selection rule (process.py:
+        mark_included). The pipeline records the verdict on each record, so an
+        aggregate built from failures.json excludes exactly the same runs as
+        the metrics aggregates. A record without the field is treated as NOT
+        included: silently mixing a contaminated run into a failure or
+        election aggregate is the failure mode this rule exists to prevent,
+        and an absent verdict means the data predates the rule.
+        """
+        return [f for f in self.failures if str(f.get("included", "0")) == "1"]
+
+    def election_records(self):
+        """One record per included election run: the measured number of
+        failed elections, the availability gap, and the decoupled recovery
+        time."""
+        out = []
+        for f in self.included_failures():
+            if f.get("failure_mode") != "election":
+                continue
+            me = f.get("measured_elections")
+            gap = fnum(f.get("write_availability_gap_s_approx"))
+            if me is None or gap is None:
+                continue
+            out.append({
+                "run_id": f["run_id"],
+                "measured_elections": me,
+                "gap_s": gap,
+                "recovery_s": fnum(f.get("recovery_from_isolation_end_s")),
+            })
+        return out
+
     def failure_stats(self):
         """Aggregate availability-gap statistics per (protocol, mode)."""
         groups = {}
-        for f in self.failures:
-            key = (f.get("protocol", ""), f.get("mode", ""))
+        for f in self.included_failures():
+            key = (f.get("protocol", ""), f.get("failure_mode", ""))
             if not key[0]:
-                # failures.json records do not carry protocol/mode; join via
+                # Older failure records do not carry protocol/mode; join via
                 # the run index.
                 rid = f.get("run_id", "")
                 for r in self.runs:
@@ -396,42 +437,54 @@ class Dataset:
         return rows
 
     def election_table(self):
-        """Per failed-elections target: measured recovery time. Recovery is
-        derived from the events timeline (leader_observed transitions) and
-        request timestamps; the actual number of failed elections is what the
-        log shows, not the configured target."""
-        rows = []
-        for r in self.runs:
-            if r["failure_mode"] != "election" or not r["valid"]:
-                continue
-            meta = self.meta.get(r["run_id"], {})
-            cfg = meta.get("config", {})
-            target = cfg.get("failure", {}).get("failed_elections", 0)
-            ev = self._events(r["run_id"])
-            # Recovery: time from failure_injected to the first leader_observed
-            # with a valid leader after it.
-            fail_ts = None
-            for e in ev:
-                if e.get("event") == "failure_injected":
-                    fail_ts = int(e["ts_ns"])
-            if fail_ts is None:
-                continue
-            recover_ts = None
-            for e in ev:
-                if e.get("event") == "leader_observed" and int(e["ts_ns"]) > fail_ts:
-                    try:
-                        if int(e["detail"]) >= 0:
-                            recover_ts = int(e["ts_ns"])
-                            break
-                    except ValueError:
-                        continue
-            rows.append({
-                "run_id": r["run_id"],
-                "protocol": r["protocol"],
-                "target_failed_elections": target,
-                "recovery_s": (recover_ts - fail_ts) / 1e9 if recover_ts else None,
+        """Per MEASURED failed-elections value: availability-gap and
+        recovery-from-isolation-end statistics (n, mean, median, SD, 95% CI)
+        computed from the raw per-run observations. The independent variable
+        is the actual number of failed elections (sum of dropped RequestVote
+        across replicas, from stats.json), never the configured target."""
+        rows = self.election_records()
+        groups = defaultdict(list)
+        for r in rows:
+            groups[r["measured_elections"]].append(r)
+        out = []
+        for me in sorted(groups):
+            recs = groups[me]
+            gaps = [r["gap_s"] for r in recs]
+            recovs = [r["recovery_s"] for r in recs if r["recovery_s"] is not None]
+            out.append({
+                "measured_elections": me,
+                "n": len(recs),
+                "gap_mean": labstats.mean(gaps),
+                "gap_median": labstats.median(gaps),
+                "gap_sd": labstats.stdev(gaps),
+                "gap_ci95_lo": labstats.ci95(gaps)[0],
+                "gap_ci95_hi": labstats.ci95(gaps)[1],
+                "recovery_mean": labstats.mean(recovs),
+                "recovery_median": labstats.median(recovs),
+                "recovery_sd": labstats.stdev(recovs),
+                "recovery_ci95_lo": labstats.ci95(recovs)[0],
+                "recovery_ci95_hi": labstats.ci95(recovs)[1],
+                "runs": recs,
             })
-        return rows
+        return out
+
+    def election_correlation(self):
+        """Pearson correlations of the availability gap and of the
+        recovery-from-isolation-end with the measured failed elections, from
+        the raw observations (computed here, not hardcoded)."""
+        recs = self.election_records()
+        xs = [r["measured_elections"] for r in recs]
+        ys_gap = [r["gap_s"] for r in recs]
+        ys_rec = [r["recovery_s"] for r in recs]
+        r_gap = labstats.pearson(xs, ys_gap)
+        p_gap = labstats.pearson_p(r_gap, len(xs)) if r_gap is not None else None
+        r_rec = labstats.pearson(xs, ys_rec)
+        p_rec = labstats.pearson_p(r_rec, len(xs)) if r_rec is not None else None
+        return {
+            "n": len(xs),
+            "gap_pearson_r": r_gap, "gap_p_value": p_gap,
+            "recovery_pearson_r": r_rec, "recovery_p_value": p_rec,
+        }
 
     def _events(self, run_id):
         p = os.path.join(self.raw, run_id, "events.csv")
@@ -546,7 +599,8 @@ def render_nav():
         ("summary", "Summary"), ("config", "Configuration"), ("workload", "Workload"),
         ("scaling", "Scaling"), ("conflict", "Conflict"), ("concurrency", "Concurrency"),
         ("election", "Election"), ("read", "Read Semantics"), ("failure", "Failure"),
-        ("resources", "Resources"), ("figures", "Figures"), ("runs", "Run Explorer"),
+        ("resources", "Resources"), ("integrity", "Execution Integrity"),
+        ("figures", "Figures"), ("runs", "Run Explorer"),
         ("repro", "Reproducibility"), ("limitations", "Limitations"),
     ]
     return '<nav>' + "".join(f'<a href="#{k}">{v}</a>' for k, v in items) + '</nav>'
@@ -811,22 +865,170 @@ def render_election(ds):
     rows = ds.election_table()
     if not rows:
         return "<section id=\"election\"><h2>Election-Failure Recovery</h2><p class='note'>No election-failure data.</p></section>"
-    body = []
+
+    # Aggregate table per measured failed-elections value.
+    agg_rows = []
     for r in rows:
-        body.append(f"<tr><td>{esc(r['run_id'])}</td><td>{esc(r['protocol'])}</td>"
-                    f"<td>{r['target_failed_elections']}</td>"
-                    f"<td>{fmt_num(r['recovery_s'], 2)}</td></tr>")
-    table = ("<table><thead><tr><th>Run ID</th><th>Protocol</th>"
-             "<th>Target failed elections</th><th>Recovery time (s)</th>"
-             "</tr></thead><tbody>" + "".join(body) + "</tbody></table>")
+        agg_rows.append([
+            r["measured_elections"], r["n"],
+            fmt_num(r["gap_mean"], 2), fmt_num(r["gap_median"], 2),
+            fmt_num(r["gap_sd"], 2),
+            f"{fmt_num(r['gap_ci95_lo'], 2)}–{fmt_num(r['gap_ci95_hi'], 2)}",
+            fmt_num(r["recovery_mean"], 2), fmt_num(r["recovery_median"], 2),
+            fmt_num(r["recovery_sd"], 2),
+            f"{fmt_num(r['recovery_ci95_lo'], 2)}–{fmt_num(r['recovery_ci95_hi'], 2)}",
+        ])
+    agg = render_table(
+        ["Measured failed elections", "n", "Gap mean (s)", "Gap median (s)",
+         "Gap SD (s)", "95% CI (s)", "Recovery mean (s)", "Recovery median (s)",
+         "Recovery SD (s)", "95% CI (s)"], agg_rows)
+
+    # Per-run detail.
+    detail_rows = []
+    for r in rows:
+        for run in r["runs"]:
+            detail_rows.append([
+                esc(run["run_id"]), run["measured_elections"], fmt_num(run["gap_s"], 2),
+                fmt_num(run["recovery_s"], 2),
+            ])
+    detail = render_table(
+        ["Run ID", "Measured failed elections", "Availability gap (s)",
+         "Recovery from isolation end (s)"], detail_rows)
+
+    # Correlation statistics (computed from the raw observations).
+    corr = ds.election_correlation()
+    corr_html = ""
+    if corr["n"] >= 2 and corr["gap_pearson_r"] is not None:
+        p = corr["gap_p_value"]
+        p_str = f"{p:.4f}" if p is not None else NAN_LABEL
+        corr_html = (f'<div class="obs"><strong>Correlation (measured failed '
+                     f'elections vs availability gap):</strong> n={corr["n"]}, '
+                     f'Pearson r={corr["gap_pearson_r"]:.3f}, p={p_str}. '
+                     f'The gap includes the isolation duration (proportional '
+                     f'to the target), so a positive correlation is partly '
+                     f'mechanical. Correlation does not imply causation; the '
+                     f'observations are shown in the figure below.</div>')
+    if corr["n"] >= 2 and corr["recovery_pearson_r"] is not None:
+        p = corr["recovery_p_value"]
+        p_str = f"{p:.4f}" if p is not None else NAN_LABEL
+        corr_html += (f'<div class="obs"><strong>Correlation (measured failed '
+                      f'elections vs recovery from isolation end):</strong> '
+                      f'n={corr["n"]}, Pearson r={corr["recovery_pearson_r"]:.3f}, '
+                      f'p={p_str}. This metric is decoupled from the injection '
+                      f'duration; it measures only recovery behaviour after '
+                      f'the isolation has expired.</div>')
+
+    figs = ds.figure_categories.get("election", [])
+    fig_html = ""
+    if figs:
+        grid = "".join(
+            f'<div class="fig-card"><img src="../figures/election/{esc(f)}" alt="{esc(f)}">'
+            f'<div class="cap">{esc(f)}</div></div>' for f in figs)
+        fig_html = f'<h3>Observations</h3><div class="fig-grid">{grid}</div>'
+
     return f"""
 <section id="election">
   <h2>Election-Failure Recovery</h2>
-  <p class="note">Recovery time vs the number of failed election attempts
-  induced by isolating the Raft transport (vote requests dropped). The
-  relationship is measured, not assumed to be linear. Recovery time is the
-  interval from failure injection to the first valid leader observation.</p>
-  {table}
+  <p class="note">Recovery vs the MEASURED number of failed election
+  attempts (sum of dropped RequestVote across replicas, from
+  <code>stats.json</code>). The configured target is a nominal setting; the
+  measured count is the independent variable. Two metrics are reported:
+  the request-based availability gap (largest interval with no successful
+  completion after the leader kill, which includes the isolation duration)
+  and the recovery-from-isolation-end (time from the end of the isolation
+  window to the first successful request, decoupled from the injection
+  duration).</p>
+  {corr_html}
+  {agg}
+  <h3>Per-run detail</h3>
+  {detail}
+  {fig_html}
+</section>"""
+
+
+def render_execution_integrity(ds):
+    m = ds.manifest
+    if not m:
+        return ("<section id='integrity'><h2>Execution Integrity</h2>"
+                "<p class='note'>No execution manifest found "
+                "(results/execution-manifest.json).</p></section>")
+
+    # Runs excluded from every aggregate by the documented selection rule in
+    # process.py: host-contaminated runs, and attempts superseded by a
+    # replacement run. They stay in the manifest and in metrics.csv.
+    excluded = sum(1 for r in ds.metrics if str(r.get("included")) == "0")
+
+    cards = [
+        ("Total runs", m.get("total_runs", 0)),
+        ("Successful", m.get("successful_runs", 0)),
+        ("Failed", m.get("failed_runs", 0)),
+        ("Contaminated", m.get("contaminated_runs", 0)),
+        ("Excluded from aggregates", excluded),
+        ("Cleanup failures", len(m.get("cleanup_failures") or [])),
+    ]
+    cards_html = '<div class="cards">' + "".join(
+        f'<div class="card"><div class="num">{v}</div><div class="lbl">{k}</div></div>'
+        for k, v in cards) + '</div>'
+
+    gap_min = m.get("min_inter_run_gap_s")
+    gap_max = m.get("max_inter_run_gap_s")
+    gap_html = (f"<tr><td>Min inter-run gap</td><td>{fmt_num(gap_min, 1)} s</td></tr>"
+                f"<tr><td>Max inter-run gap</td><td>{fmt_num(gap_max, 1)} s</td></tr>")
+
+    overlaps = m.get("overlaps") or []
+    overlaps_html = ("<li>none</li>" if not overlaps else
+                     "".join(f"<li>{esc(o)}</li>" for o in overlaps))
+    cleanup = m.get("cleanup_failures") or []
+    cleanup_html = ("<li>none</li>" if not cleanup else
+                    "".join(f"<li>{esc(c)}</li>" for c in cleanup))
+    anomalies = m.get("host_anomalies") or []
+    anomalies_html = ("<li>none</li>" if not anomalies else
+                      "".join(f"<li>{esc(a)}</li>" for a in anomalies))
+
+    # A dataset may span several batches (e.g. a matrix resumed after the host
+    # was interrupted); every batch is listed so the gap is never hidden.
+    batches = m.get("batch_ids") or []
+    if batches:
+        batch_row = (f"<tr><td>Batch IDs</td><td>{esc(', '.join(batches))}</td></tr>")
+    else:
+        batch_row = (f"<tr><td>Batch ID</td><td>{esc(m.get('batch_id', NAN_LABEL))}</td></tr>")
+
+    timeline = ds.figure_categories.get("execution", [])
+    timeline_html = ""
+    if timeline:
+        grid = "".join(
+            f'<div class="fig-card"><img src="../figures/execution/{esc(f)}" alt="{esc(f)}">'
+            f'<div class="cap">{esc(f)}</div></div>' for f in timeline)
+        timeline_html = f'<h3>Condition timeline</h3><div class="fig-grid">{grid}</div>'
+
+    return f"""
+<section id="integrity">
+  <h2>Execution Integrity</h2>
+  <p class="note">Reconstructed from the actual run timestamps and telemetry
+  in <code>results/execution-manifest.json</code> — not from the intended
+  schedule. Conditions are executed in reproducibly randomized blocks
+  (schedule seed {esc(m.get('schedule_seed', NAN_LABEL))}, {len(batches) or 1}
+  batch(es) of runs), so no condition is confounded with
+  wall-clock time. Runs flagged contaminated are excluded from every
+  aggregate (see <code>process.py</code>); they are kept in the manifest and
+  in <code>metrics.csv</code>, and each condition keeps one observation per
+  planned repetition.</p>
+  {cards_html}
+  <table>
+    <thead><tr><th>Property</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Randomization seed</td><td>{esc(m.get('schedule_seed', NAN_LABEL))}</td></tr>
+      {batch_row}
+      {gap_html}
+    </tbody>
+  </table>
+  <h3>Overlapping runs</h3>
+  <ul>{overlaps_html}</ul>
+  <h3>Cleanup failures</h3>
+  <ul>{cleanup_html}</ul>
+  <h3>Host anomalies (contaminated runs)</h3>
+  <ul>{anomalies_html}</ul>
+  {timeline_html}
 </section>"""
 
 
@@ -1137,6 +1339,7 @@ def render_page(ds):
         render_read_semantics(ds),
         render_failure(ds),
         render_resources(ds),
+        render_execution_integrity(ds),
         render_figures(ds),
         render_run_explorer(ds),
         render_repro(ds),
