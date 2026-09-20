@@ -1,4 +1,107 @@
 \section{Threats to Validity}
 \label{sec:threats}
 
-% TODO: Write this section after the experimental methodology is finalized.
+We distinguish four classes of threat.
+
+\subsection{Construct Validity}
+
+Throughput is the number of successful requests in the measured phase divided by
+that phase's duration, and latency is measured by the client around each request.
+Both therefore include client-side queueing and the full consensus round trip;
+they are not server-side service times. The client is closed-loop and
+batch-oriented, so the reported throughput at a given concurrency is the rate
+the system sustains under closed-loop demand of that intensity, not the rate it
+would sustain under an open-loop load with the same number of outstanding
+requests. At the highest concurrency (Figure~\ref{fig:throughput-concurrency})
+the client and the container scheduler may themselves limit the observed
+throughput, which would compress rather than inflate the difference between the
+protocols.
+
+Resource metrics are read from the host at approximately 200\,ms resolution, from
+cgroup v2 \texttt{cpu.stat}, the container's network namespace, and
+\texttt{/proc}. Cumulative counters are differenced during processing, so a
+sample is an average over an interval rather than a peak, and memory is RSS,
+which excludes page cache and memory the runtime has returned to the operating
+system.
+
+The conflict rate is realised by routing a configured fraction of requests to
+shared hot keys, and the realised fraction is recorded per request, so the
+measured rate is not assumed. The reported conflict result is nevertheless a
+throughput-level observation: the EPaxos fast- and slow-path counters are
+recorded per run but are not part of the aggregated analysis.
+
+\subsection{Internal Validity}
+
+Each repetition is a fresh Docker Compose project with new containers, networks,
+and volumes, verified before and after the run, so no consensus state carries
+over between repetitions. Conditions are interleaved in reproducibly seeded
+random blocks rather than executed in condition blocks, and every repetition
+uses an independent workload seed, which removes the condition-order confounding
+and the repeated-workload-sequence effects present in the earlier version of the
+protocol.
+
+Isolation is enforced at the container level but not at the host level: the
+benchmark itself occupies roughly nine of the measurement host's twelve cores,
+so replicas contend with each other and with the client for CPU. We detect
+rather than prevent this. Host telemetry is sampled for every run, runs whose
+telemetry shows a suspension, a clock jump, or CPU starvation are excluded from
+every aggregate and re-run, and the replacement is recorded alongside the
+original attempt. Twelve of 1{,}302 measured runs were excluded this way. The
+same mechanism cannot rule out interference that leaves no telemetry signature.
+
+The two systems are not equally mature. HashiCorp Raft is a widely deployed
+library, whereas the EPaxos implementation is the research prototype published
+with the original paper, run with its default \texttt{-e -exec -dreply}
+configuration. Part of any measured difference may therefore reflect
+implementation quality and tuning rather than the ordering architecture. One
+deviation is our own: the vendored EPaxos hardcodes a dependency-set size of
+five, which we extended to nine through a documented wire-format change so that
+7- and 9-replica clusters can run at all. The protocol's phases, quorums, and
+decision rules are unchanged, but the extension is exercised precisely in the
+configurations reported in Table~\ref{tab:scaling}.
+
+Neither protocol is measured in a restart-from-persistence scenario. Failure
+injection kills a container and does not restart it, and Raft's persisted state
+is destroyed between repetitions because persistence is not part of any
+experiment. EPaxos keeps its state in memory by upstream default, so a lost
+replica cannot rejoin with its prior state in either case. Failure timing is
+driven at a fixed offset into the measured phase and the availability gap is
+reconstructed from request timestamps at approximately 200\,ms resolution, so
+recovery durations are approximate and batch-granular rather than a precise
+availability measurement. In the election experiment the isolation duration is a
+property of the injection rather than of the protocol, which is why the
+availability gap correlates with the measured election count partly by
+construction, and why we also report recovery measured from the end of the
+isolation window (Section~\ref{sec:evaluation}).
+
+\subsection{External Validity}
+
+All replicas run on a single host inside containers over a bridge network, so
+the measurements contain no wide-area latency, no real packet loss, and no
+multi-machine failure domains. The host is a WSL2 environment, which places a
+virtualisation layer between the containers and the hardware. Cluster sizes are
+3--9, the keyspace is 1{,}000 keys, commands are uniform in size, and the
+measured phase is 20\,s. The results therefore describe short, uniform,
+single-host runs rather than long-lived deployments with skewed access patterns
+or large payloads.
+
+Reads are routed through consensus in both protocols and no Raft-specific read
+optimisation is enabled, so the read comparison is one of equivalent consistency
+rather than of each system's fastest read path; a deployment using leader leases
+or \texttt{ReadIndex} would show a different read profile. Both systems are
+measured with identical CPU and memory allocations, which is the fair choice for
+a controlled comparison but is not a tuned deployment of either.
+
+\subsection{Statistical Conclusion Validity}
+
+Each configuration is measured ten times, and every aggregate is reported with
+its sample size, standard deviation, and a $t$-based 95\,\% interval. Ten
+repetitions leave wide intervals for a variable system: measuring the same
+nominal configuration in four experiment families produced means that differed
+by up to 21\,\% for Raft and 8\,\% for EPaxos, and intervals overlap in several
+comparisons whose means differ, for example at 7 and 9 replicas. We therefore
+read only differences that exceed this reproducibility band and treat the
+overlapping comparisons as inconclusive rather than as small effects. Numerous
+configurations are compared without a multiplicity correction, so an isolated
+configuration-level difference should not be read as an established effect.
+Outliers within clean runs are not removed.
