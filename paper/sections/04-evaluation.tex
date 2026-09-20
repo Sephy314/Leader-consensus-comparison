@@ -50,7 +50,7 @@ Replicas & Raft & EPaxos & EPaxos/Raft \\
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/throughput-scaling.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/throughput-scaling.pdf}
     \caption{Mean throughput by replica count at 100\,\% writes and
     concurrency 32. Points show individual repetitions.}
     \label{fig:throughput-scaling}
@@ -68,7 +68,7 @@ EPaxos mean by a factor of 3.2 (10{,}712 to 33{,}971\,req/s).
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/throughput-concurrency.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/throughput-concurrency.pdf}
     \caption{Mean throughput by client concurrency at 3 replicas and
     100\,\% writes. Points show individual repetitions.}
     \label{fig:throughput-concurrency}
@@ -84,7 +84,7 @@ writes and its lowest at 90\,\%, while EPaxos's highest was at 10\,\% writes
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/throughput-write-ratio.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/throughput-write-ratio.pdf}
     \caption{Mean throughput by write ratio at 3 replicas and concurrency
     32. Points show individual repetitions.}
     \label{fig:throughput-write-ratio}
@@ -99,7 +99,7 @@ configurations in both cases.
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/throughput-conflict-ratio.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/throughput-conflict-ratio.pdf}
     \caption{Mean throughput by conflict ratio at 3 replicas, 100\,\%
     writes, and concurrency 32. Points show individual repetitions.}
     \label{fig:throughput-conflict-ratio}
@@ -132,7 +132,7 @@ Replicas & Raft p50 (ms) & EPaxos p50 (ms) \\
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/latency-replica-scaling.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/latency-replica-scaling.pdf}
     \caption{Median (p50) latency by replica count at 100\,\% writes and
     concurrency 32. Points show individual repetitions.}
     \label{fig:latency-replica-scaling}
@@ -146,7 +146,7 @@ concurrency 256, 13.4\,ms and 14.0\,ms.
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/latency-concurrency.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/latency-concurrency.pdf}
     \caption{Median (p50) latency by client concurrency at 3 replicas and
     100\,\% writes. Points show individual repetitions.}
     \label{fig:latency-concurrency}
@@ -161,13 +161,13 @@ for Raft and 46.8\,MB for EPaxos; and mean per-replica network rates were
 441\,kB/s RX and 443\,kB/s TX for Raft, and 408\,kB/s RX and 392\,kB/s
 TX for EPaxos.
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\textwidth]{figures/resource-utilisation.pdf}
+    \includegraphics[width=0.85\textwidth]{figures/resource-utilisation.pdf}
     \caption{Mean per-replica CPU utilisation, peak per-replica RSS, and
     mean per-replica network rates, aggregated over all runs.}
     \label{fig:resource-utilisation}
-\end{figure}
+\end{figure*}
 
 Figure~\ref{fig:per-replica-cpu} shows the per-replica CPU utilisation in
 the 9-replica scaling runs. In the Raft runs, the per-replica means ranged
@@ -179,7 +179,7 @@ In the corresponding EPaxos runs, the per-replica means ranged from
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\columnwidth]{figures/per-replica-cpu.pdf}
+    \includegraphics[width=0.85\columnwidth]{figures/per-replica-cpu.pdf}
     \caption{Per-replica CPU utilisation in the 9-replica scaling runs.
     Bars show the mean over repetitions; points show individual
     repetitions.}
@@ -213,14 +213,14 @@ Replica kill & EPaxos & 0.02--0.09 & 10--106 \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\textwidth]{figures/failure-recovery.pdf}
+    \includegraphics[width=0.80\textwidth]{figures/failure-recovery.pdf}
     \caption{Write-availability gap and failed requests by failure type at
     3 replicas, 100\,\% writes, concurrency 32. Points show individual
     repetitions; the bar marks the mean.}
     \label{fig:failure-recovery}
-\end{figure}
+\end{figure*}
 
 The election family, which isolates replicas to force repeated failed
 elections during a Raft leader failure, produced availability gaps that
@@ -238,9 +238,9 @@ measured election count ($r=0.41$, $p=0.001$, $n=60$): after the isolation
 expires, a cluster that experienced more failed elections takes longer to
 restore service, beyond the extra time the injection itself consumed.
 
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\textwidth]{figures/election-failure.pdf}
+    \includegraphics[width=0.85\textwidth]{figures/election-failure.pdf}
     \caption{Election-failure recovery in Raft at 3 replicas, 100\,\%
     writes, concurrency 32. Left: write-availability gap vs the measured
     number of failed elections (the gap includes the isolation duration,
@@ -249,7 +249,7 @@ restore service, beyond the extra time the injection itself consumed.
     the injection duration. Points show individual repetitions; the dashed
     line marks the mean per value.}
     \label{fig:election-failure}
-\end{figure}
+\end{figure*}
 
 \subsection{Summary of Findings}
 
@@ -259,7 +259,8 @@ tested:
 \begin{itemize}
 \item At each tested replica count, the measured mean throughput for EPaxos
   was higher than that for Raft, with the largest relative difference at 5
-  replicas (1.75$\times$).
+  replicas (1.75$\times$); the 95\,\% intervals are separated at 3 and 5
+  replicas but overlap at 7 and 9.
 \item Throughput decreased with replica count for both protocols; from 3 to
   9 replicas the mean decreased by 57\% for EPaxos and 50\% for Raft.
 \item At concurrency 256, the measured mean throughput was 33{,}971\,req/s
