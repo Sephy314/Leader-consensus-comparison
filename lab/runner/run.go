@@ -527,16 +527,16 @@ func writeMetadata(dir string, cfg labcfg.Run, rep int, runID string, res runRes
 func persistenceClass(cfg labcfg.Run) map[string]any {
 	if cfg.Protocol == "raft" {
 		return map[string]any{
-			"classification": "B: state that MUST be destroyed between repetitions",
-			"state":          "current term, votedFor, log entries, snapshots, boltdb database files, node identity, cluster membership (all persisted by HashiCorp Raft to per-replica boltdb)",
-			"destruction":    "per-replica named volumes (raftdata0..N-1) removed by `docker compose down -v`; removal verified post-teardown",
+			"classification":            "B: state that MUST be destroyed between repetitions",
+			"state":                     "current term, votedFor, log entries, snapshots, boltdb database files, node identity, cluster membership (all persisted by HashiCorp Raft to per-replica boltdb)",
+			"destruction":               "per-replica named volumes (raftdata0..N-1) removed by `docker compose down -v`; removal verified post-teardown",
 			"persistence_is_experiment": false,
 		}
 	}
 	return map[string]any{
-		"classification": "B: state that MUST be destroyed between repetitions",
-		"state":          "in-memory only (upstream default, no -durable); no WAL/database files",
-		"destruction":    "containers removed by `docker compose down -v`; no persistent volumes",
+		"classification":            "B: state that MUST be destroyed between repetitions",
+		"state":                     "in-memory only (upstream default, no -durable); no WAL/database files",
+		"destruction":               "containers removed by `docker compose down -v`; no persistent volumes",
 		"persistence_is_experiment": false,
 	}
 }
