@@ -4,6 +4,12 @@ lab/results/
 lab/.venv/
 lab/bin/
 
+# Vendored third-party dependency tree of the nvb/epaxos library (133 MB).
+# The library predates Go modules and ships its dependencies through dep
+# (Gopkg.lock). The pinned upstream commit plus Gopkg.lock fully determine
+# this tree; see lab/upstream/nvb-epaxos/UPSTREAM.md for how to restore it.
+lab/upstream/nvb-epaxos/vendor/
+
 # LaTeX build artifacts
 paper/*.aux
 paper/*.bbl

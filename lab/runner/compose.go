@@ -161,7 +161,12 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 		ClientPort:   7070,
 		RaftPort:     6000,
 	}
-	if cfg.Protocol == "raft" {
+	// The (protocol, implementation) pair selects the replica and master
+	// binaries. This is the only place in the lab where a protocol or
+	// implementation name maps to a command line; the benchmark client,
+	// workload, metrics, and analysis are shared by all four implementations.
+	switch cfg.Impl() {
+	case labcfg.ImplHashicorp:
 		m.DataVolumes = true
 		m.MasterCmd = []string{"raftmaster", "-port", "7087", "-n", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
@@ -179,7 +184,30 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-trailing-logs", itoa(cfg.RaftTrailingLogs),
 			})
 		}
-	} else {
+	case labcfg.ImplEtcd:
+		// Raft B: go.etcd.io/raft/v3. Same master (the lab's raft master),
+		// same client port, same Raft transport port, same persistent
+		// /data volume. The election/heartbeat timeouts are expressed in
+		// ticks by the etcd library; the adapter converts the same
+		// millisecond timeouts into ticks so both Raft implementations run
+		// with the same effective timeouts.
+		m.DataVolumes = true
+		m.MasterCmd = []string{"raftmaster", "-port", "7087", "-n", itoa(cfg.Replicas)}
+		for i := 0; i < cfg.Replicas; i++ {
+			m.ReplicaCmds = append(m.ReplicaCmds, []string{
+				"etcdraftadapter",
+				"-master", "master:7087",
+				"-addr", fmt.Sprintf("replica%d", i),
+				"-client-port", "7070",
+				"-raft-port", "6000",
+				"-dir", "/data",
+				"-gomaxprocs", itoa(cfg.GOMAXPROCS),
+				"-heartbeat-ms", itoa(cfg.RaftHeartbeatMS),
+				"-election-ms", itoa(cfg.RaftElectionMS),
+				"-trailing-logs", itoa(cfg.RaftTrailingLogs),
+			})
+		}
+	case labcfg.ImplOriginal:
 		m.MasterCmd = []string{"epaxos-master", "-port", "7087", "-N", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
 			m.ReplicaCmds = append(m.ReplicaCmds, []string{
@@ -192,12 +220,31 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-p", itoa(cfg.GOMAXPROCS),
 			})
 		}
+	case labcfg.ImplNVB:
+		// EPaxos B: github.com/nvanbenschoten/epaxos. Uses the upstream
+		// EPaxos master unchanged. The EPaxos library pushes transport and
+		// storage onto the integrator, so the adapter runs the benchmark
+		// client protocol on the client port and the library's peer
+		// transport on a separate port.
+		m.MasterCmd = []string{"epaxos-master", "-port", "7087", "-N", itoa(cfg.Replicas)}
+		for i := 0; i < cfg.Replicas; i++ {
+			m.ReplicaCmds = append(m.ReplicaCmds, []string{
+				"nvbepaxos-server",
+				"-port", "7070",
+				"-peer-port", "6000",
+				"-maddr", "master",
+				"-mport", "7087",
+				"-addr", fmt.Sprintf("replica%d", i),
+				"-p", itoa(cfg.GOMAXPROCS),
+			})
+		}
 	}
 	m.ClientCmd = []string{
 		"client",
 		"-maddr", "master",
 		"-mport", "7087",
 		"-protocol", cfg.Protocol,
+		"-impl", cfg.Impl(),
 		"-replicas", itoa(cfg.Replicas),
 		"-w", itoa(cfg.WritePct),
 		"-c", itoa(cfg.Concurrency),

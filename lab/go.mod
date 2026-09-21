@@ -18,7 +18,9 @@ require (
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	go.etcd.io/bbolt v1.3.5 // indirect
+	go.etcd.io/raft/v3 v3.7.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 replace state => ./internal/state
