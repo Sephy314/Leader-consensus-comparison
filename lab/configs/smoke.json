@@ -69,7 +69,5 @@
     {"protocol": "raft",   "mode": "leader",   "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 8, "restart_after_s": 0},
     {"protocol": "raft",   "mode": "follower", "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 8, "restart_after_s": 0},
     {"protocol": "epaxos", "mode": "replica",  "replicas": 3, "write_pct": 100, "concurrency": 32, "at_s": 8, "restart_after_s": 0}
-  ],
-
-  "implementations": ["hashicorp", "etcd", "original", "nvb"]
+  ]
 }

@@ -41,24 +41,22 @@ func runSmoke(s SmokeSpec) error {
 	clusterCfg.Concurrency = 1
 	clusterCfg.WritePct = 50
 	clusterCfg.ReadPct = 50
-	for _, tgt := range s.smokeTargets() {
+	for _, proto := range []string{"raft", "epaxos"} {
 		cfg := clusterCfg
-		cfg.Protocol = tgt.proto
-		cfg.Implementation = tgt.impl
+		cfg.Protocol = proto
 		res := executeRun(cfg, 1, env, nil)
 		if res.Status != "success" {
-			return fmt.Errorf("stage 2 (%s/%s minimal cluster) failed: %s", cfg.Protocol, cfg.Impl(), res.Reason)
+			return fmt.Errorf("stage 2 (%s minimal cluster) failed: %s", proto, res.Reason)
 		}
-		fmt.Printf("  %s/%s minimal cluster PASS (%s)\n", cfg.Protocol, cfg.Impl(), res.RunID)
+		fmt.Printf("  %s minimal cluster PASS (%s)\n", proto, res.RunID)
 	}
 	fmt.Println("stage 2 PASS")
 
 	fmt.Println("\n################ SMOKE STAGE 3/6: basic PUT/GET requests ################")
-	for _, tgt := range s.smokeTargets() {
+	for _, proto := range []string{"raft", "epaxos"} {
 		for _, w := range []int{0, 100} {
 			cfg := s.Basic
-			cfg.Protocol = tgt.proto
-			cfg.Implementation = tgt.impl
+			cfg.Protocol = proto
 			cfg.WritePct = w
 			cfg.ReadPct = 100 - w
 			cfg.DurationS = 3
@@ -67,39 +65,38 @@ func runSmoke(s SmokeSpec) error {
 			cfg.Concurrency = 2
 			res := executeRun(cfg, 1, env, nil)
 			if res.Status != "success" {
-				return fmt.Errorf("stage 3 (%s/%s %d%% writes) failed: %s", cfg.Protocol, cfg.Impl(), w, res.Reason)
+				return fmt.Errorf("stage 3 (%s %d%% writes) failed: %s", proto, w, res.Reason)
 			}
 			stat, err := readRequestStats(filepath.Join(res.Dir, "requests.csv"))
 			if err != nil {
-				return fmt.Errorf("stage 3 (%s/%s): %w", cfg.Protocol, cfg.Impl(), err)
+				return fmt.Errorf("stage 3 (%s): %w", proto, err)
 			}
 			if stat.total == 0 {
-				return fmt.Errorf("stage 3 (%s/%s %d%% writes): no requests recorded", cfg.Protocol, cfg.Impl(), w)
+				return fmt.Errorf("stage 3 (%s %d%% writes): no requests recorded", proto, w)
 			}
 			if stat.ok != stat.total {
-				return fmt.Errorf("stage 3 (%s/%s %d%% writes): %d/%d succeeded", cfg.Protocol, cfg.Impl(), w, stat.ok, stat.total)
+				return fmt.Errorf("stage 3 (%s %d%% writes): %d/%d succeeded", proto, w, stat.ok, stat.total)
 			}
-			fmt.Printf("  %s/%s %3d%% writes: %d/%d ok PASS\n", cfg.Protocol, cfg.Impl(), w, stat.ok, stat.total)
+			fmt.Printf("  %s %3d%% writes: %d/%d ok PASS\n", proto, w, stat.ok, stat.total)
 		}
 	}
 	fmt.Println("stage 3 PASS")
 
 	fmt.Println("\n################ SMOKE STAGE 4/6: small mixed workload ################")
-	for _, tgt := range s.smokeTargets() {
+	for _, proto := range []string{"raft", "epaxos"} {
 		cfg := s.Small
-		cfg.Protocol = tgt.proto
-		cfg.Implementation = tgt.impl
+		cfg.Protocol = proto
 		cfg.Repetitions = 1
 		res := executeRun(cfg, 1, env, nil)
 		if res.Status != "success" {
-			return fmt.Errorf("stage 4 (%s/%s small workload) failed: %s", cfg.Protocol, cfg.Impl(), res.Reason)
+			return fmt.Errorf("stage 4 (%s small workload) failed: %s", proto, res.Reason)
 		}
 		stat, err := readRequestStats(filepath.Join(res.Dir, "requests.csv"))
 		if err != nil {
-			return fmt.Errorf("stage 4 (%s/%s): %w", cfg.Protocol, cfg.Impl(), err)
+			return fmt.Errorf("stage 4 (%s): %w", proto, err)
 		}
-		fmt.Printf("  %s/%s small workload: %d requests, %.1f%% ok, p95=%.2fms PASS\n",
-			cfg.Protocol, cfg.Impl(), stat.total, 100*float64(stat.ok)/float64(stat.total), stat.p95ms())
+		fmt.Printf("  %s small workload: %d requests, %.1f%% ok, p95=%.2fms PASS\n",
+			proto, stat.total, 100*float64(stat.ok)/float64(stat.total), stat.p95ms())
 	}
 	fmt.Println("stage 4 PASS")
 
@@ -129,7 +126,7 @@ func runSmoke(s SmokeSpec) error {
 	fmt.Println("stage 5 PASS")
 
 	fmt.Println("\n################ SMOKE STAGE 6/6: metrics ################")
-	if err := checkMetricsInventory(env.root); err != nil {
+	if err := checkMetricsInventory(); err != nil {
 		return fmt.Errorf("stage 6 (metrics) failed: %w", err)
 	}
 	fmt.Println("stage 6 PASS")
@@ -216,9 +213,9 @@ func readEvents(path string) (map[string]bool, error) {
 }
 
 // checkMetricsInventory verifies the most recent runs produced every expected
-// metrics file with the expected columns. root is the results root the smoke
-// session wrote to (smoke runs never write to the measured dataset).
-func checkMetricsInventory(root string) error {
+// metrics file with the expected columns.
+func checkMetricsInventory() error {
+	root := filepath.Join(resultsDir(), "raw")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err

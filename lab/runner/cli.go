@@ -18,11 +18,9 @@ import (
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	rep := fs.Int("rep", 0, "single repetition to run (0 = all configured repetitions)")
-	base := fs.String("results-base", "", "results subtree to write to (empty = the primary dataset)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	resultsBase = *base
 	rest := fs.Args()
 	if len(rest) < 1 {
 		return fmt.Errorf("usage: runner run <config.json> [--rep N]")
@@ -49,19 +47,17 @@ type MatrixSpec struct {
 }
 
 type WorkloadSpec struct {
-	ReadPcts        []int    `json:"read_pcts"`
-	Concurrencies    []int    `json:"concurrencies"`
-	Protocols        []string `json:"protocols"`
-	Implementations  []string `json:"implementations"` // optional; empty = each protocol's primary implementation
-	Replicas         int      `json:"replicas"`
+	ReadPcts      []int    `json:"read_pcts"`
+	Concurrencies []int    `json:"concurrencies"`
+	Protocols     []string `json:"protocols"`
+	Replicas      int      `json:"replicas"`
 }
 
 type ScalingSpec struct {
-	Replicas        []int    `json:"replicas"`
-	WritePct        int      `json:"write_pct"`
-	Concurrency     int      `json:"concurrency"`
-	Protocols       []string `json:"protocols"`
-	Implementations []string `json:"implementations"` // optional; empty = each protocol's primary implementation
+	Replicas    []int    `json:"replicas"`
+	WritePct    int      `json:"write_pct"`
+	Concurrency int      `json:"concurrency"`
+	Protocols   []string `json:"protocols"`
 }
 
 // ConflictSpec is the conflict-rate sensitivity experiment: vary the
@@ -119,11 +115,9 @@ func cmdMatrix(args []string) error {
 	scheduleSeed := fs.Int64("schedule-seed", 1, "seed for the blocked-randomization execution schedule (recorded in the manifest)")
 	skipExisting := fs.Bool("skip-existing", false, "skip runs that already completed in an earlier batch (resume an interrupted matrix)")
 	rerun := fs.Bool("rerun-contaminated", false, "re-run only the attempts flagged contaminated by host anomalies (the originals are kept)")
-	base := fs.String("results-base", "", "results subtree to write to (empty = the primary dataset)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	resultsBase = *base
 	if *rerun {
 		return rerunFlaggedContaminated(*scheduleSeed)
 	}
@@ -160,39 +154,33 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 
 	if spec.Workload != nil && (only == "" || only == "workload") {
 		for _, proto := range spec.Workload.Protocols {
-			for _, impl := range implementationsFor(proto, spec.Workload.Implementations) {
-				for _, rp := range spec.Workload.ReadPcts {
-					for _, c := range spec.Workload.Concurrencies {
-						cfg := base
-						cfg.Experiment = "workload"
-						cfg.Protocol = proto
-						cfg.Implementation = impl
-						cfg.Replicas = spec.Workload.Replicas
-						cfg.ReadPct = rp
-						cfg.WritePct = 100 - rp
-						cfg.Concurrency = c
-						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
-						out = append(out, cfg)
-					}
+			for _, rp := range spec.Workload.ReadPcts {
+				for _, c := range spec.Workload.Concurrencies {
+					cfg := base
+					cfg.Experiment = "workload"
+					cfg.Protocol = proto
+					cfg.Replicas = spec.Workload.Replicas
+					cfg.ReadPct = rp
+					cfg.WritePct = 100 - rp
+					cfg.Concurrency = c
+					cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+					out = append(out, cfg)
 				}
 			}
 		}
 	}
 	if spec.Scaling != nil && (only == "" || only == "scaling") {
 		for _, proto := range spec.Scaling.Protocols {
-			for _, impl := range implementationsFor(proto, spec.Scaling.Implementations) {
-				for _, n := range spec.Scaling.Replicas {
-					cfg := base
-					cfg.Experiment = "scaling"
-					cfg.Protocol = proto
-					cfg.Implementation = impl
-					cfg.Replicas = n
-					cfg.WritePct = spec.Scaling.WritePct
-					cfg.ReadPct = 100 - spec.Scaling.WritePct
-					cfg.Concurrency = spec.Scaling.Concurrency
-					cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
-					out = append(out, cfg)
-				}
+			for _, n := range spec.Scaling.Replicas {
+				cfg := base
+				cfg.Experiment = "scaling"
+				cfg.Protocol = proto
+				cfg.Replicas = n
+				cfg.WritePct = spec.Scaling.WritePct
+				cfg.ReadPct = 100 - spec.Scaling.WritePct
+				cfg.Concurrency = spec.Scaling.Concurrency
+				cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+				out = append(out, cfg)
 			}
 		}
 	}
@@ -263,23 +251,6 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			}
 			out = append(out, cfg)
 		}
-	}
-	return out
-}
-
-// implementationsFor returns the implementation names to expand for one
-// protocol. An empty spec yields a single empty name, which means "the
-// protocol's primary implementation", so every pre-existing matrix config is
-// expanded exactly as before.
-func implementationsFor(protocol string, impls []string) []string {
-	var out []string
-	for _, i := range impls {
-		if labcfg.ImplSupported(protocol, i) {
-			out = append(out, i)
-		}
-	}
-	if len(out) == 0 {
-		return []string{""}
 	}
 	return out
 }
@@ -470,29 +441,6 @@ type SmokeSpec struct {
 	Basic    labcfg.Run    `json:"basic"`
 	Small    labcfg.Run    `json:"small"`
 	Failures []FailureCase `json:"failures"`
-	// Implementations lists every implementation to smoke-test, across both
-	// protocols. Entries that do not apply to a protocol are ignored. Empty
-	// means only each protocol's primary implementation, so an older smoke
-	// config behaves exactly as before.
-	Implementations []string `json:"implementations"`
-}
-
-// smokeTarget is one (protocol, implementation) pair the smoke stages
-// exercise.
-type smokeTarget struct {
-	proto string
-	impl  string
-}
-
-// smokeTargets returns the (protocol, implementation) pairs to exercise.
-func (s SmokeSpec) smokeTargets() []smokeTarget {
-	var out []smokeTarget
-	for _, proto := range []string{"raft", "epaxos"} {
-		for _, impl := range implementationsFor(proto, s.Implementations) {
-			out = append(out, smokeTarget{proto: proto, impl: impl})
-		}
-	}
-	return out
 }
 
 // applyRunDefaults fills zero-valued fields of dst from src (a default Run).
@@ -557,17 +505,5 @@ func applyRunDefaults(dst *labcfg.Run, src labcfg.Run) {
 	}
 	if dst.RaftElectionMS == 0 {
 		dst.RaftElectionMS = src.RaftElectionMS
-	}
-	if dst.RaftSnapshotThr == 0 {
-		dst.RaftSnapshotThr = src.RaftSnapshotThr
-	}
-	if dst.RaftTrailingLogs == 0 {
-		dst.RaftTrailingLogs = src.RaftTrailingLogs
-	}
-	if dst.HotKeys == 0 {
-		dst.HotKeys = src.HotKeys
-	}
-	if dst.ConflictPct == 0 {
-		dst.ConflictPct = src.ConflictPct
 	}
 }

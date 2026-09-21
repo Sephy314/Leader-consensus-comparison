@@ -40,7 +40,6 @@ var (
 	masterAddr  = flag.String("maddr", "master", "master host")
 	masterPort  = flag.Int("mport", 7087, "master port")
 	protocol    = flag.String("protocol", "raft", "raft | epaxos")
-	impl        = flag.String("impl", "", "implementation name (recorded; empty = protocol's primary implementation)")
 	replicas    = flag.Int("replicas", 3, "number of replicas (metadata)")
 	writePct    = flag.Int("w", 50, "percentage of writes (PUT)")
 	concurrency = flag.Int("c", 32, "number of client workers")
@@ -106,7 +105,6 @@ type config struct {
 	masterAddr  string
 	masterPort  int
 	protocol    string
-	impl        string
 	replicas    int
 	writePct    int
 	concurrency int
@@ -129,7 +127,6 @@ func main() {
 		masterAddr:  *masterAddr,
 		masterPort:  *masterPort,
 		protocol:    *protocol,
-		impl:        *impl,
 		replicas:    *replicas,
 		writePct:    *writePct,
 		concurrency: *concurrency,
@@ -442,13 +439,13 @@ func (c *client) writeCSV(done chan struct{}) {
 	defer f.Close()
 	w := csv.NewWriter(f)
 	w.Write([]string{
-		"run_id", "protocol", "impl", "replicas", "read_pct", "write_pct", "concurrency",
+		"run_id", "protocol", "replicas", "read_pct", "write_pct", "concurrency",
 		"conflict_pct", "worker", "seq", "request_id", "op", "key", "hot", "target",
 		"start_ns", "end_ns", "latency_ns", "ok", "error",
 	})
 	for r := range c.records {
 		w.Write([]string{
-			r.runID, r.protocol, c.cfg.impl, itoa(r.replicas), itoa(r.readPct), itoa(r.writePct), itoa(r.concurrency),
+			r.runID, r.protocol, itoa(r.replicas), itoa(r.readPct), itoa(r.writePct), itoa(r.concurrency),
 			itoa(r.conflictPct), itoa(r.worker), itoa64(r.seq), itoa64(r.requestID), r.op, itoa64(r.key),
 			boolStr(r.hot), itoa(r.target),
 			itoa64(r.startNS), itoa64(r.endNS), itoa64(r.latencyNS), boolStr(r.ok), r.errMsg,
@@ -465,8 +462,7 @@ func writePhaseMarker(outDir string, start time.Time) {
 
 func writeSummary(cfg *config, phaseStart time.Time) {
 	summary := map[string]any{
-		"run_id": cfg.runID, "protocol": cfg.protocol, "implementation": cfg.impl,
-		"replicas": cfg.replicas,
+		"run_id": cfg.runID, "protocol": cfg.protocol, "replicas": cfg.replicas,
 		"read_pct": 100 - cfg.writePct, "write_pct": cfg.writePct,
 		"concurrency": cfg.concurrency, "duration_s": cfg.duration.Seconds(),
 		"warmup_s": cfg.warmup.Seconds(), "phase_started_ns": phaseStart.UnixNano(),

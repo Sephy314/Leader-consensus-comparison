@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets check-upstream tidy upstream-hash clean clean-results
 
 help:
 	@echo "targets:"
@@ -23,8 +23,6 @@ help:
 	@echo "  rerun-contaminated  re-run the attempts flagged contaminated by host anomalies"
 	@echo "  manifest        rebuild results/execution-manifest.json from the completed runs"
 	@echo "  validate        methodology validation (randomized-order invariants) before the full suite"
-	@echo "  sensitivity     run the implementation-sensitivity experiment (4 implementations)"
-	@echo "  sensitivity-report  analyse the sensitivity dataset into a markdown report"
 	@echo "  report          process raw results + generate figures + HTML report + paper figures"
 	@echo "  html            generate the HTML report from already-processed results"
 	@echo "  validate-html   validate the HTML report against the underlying data"
@@ -69,21 +67,6 @@ manifest:
 # before the full suite.
 validate:
 	$(RUNNER) validate
-
-# Implementation sensitivity: an independent implementation of each protocol
-# (etcd Raft, nvb/epaxos) evaluated behind the same benchmark as the primary
-# implementations (HashiCorp Raft, efficient/epaxos). It writes to its own
-# results subtree, so the primary dataset is never read or modified.
-sensitivity: build
-	$(RUNNER) matrix --config configs/sensitivity.json --results-base sensitivity --schedule-seed $(SEED) --skip-existing
-	$(MAKE) sensitivity-report
-
-# Analyse the sensitivity dataset with the primary pipeline's definitions.
-sensitivity-report:
-	$(PY) report/sensitivity.py --raw results/sensitivity/raw \
-		--primary-processed results/processed \
-		--out results/sensitivity/sensitivity-report.md \
-		--json results/sensitivity/sensitivity.json | tee results/sensitivity/paper-numbers.txt
 
 # Full pipeline: raw -> processed -> figures -> HTML report -> validation
 # -> analysis extras -> paper figures.
