@@ -6,18 +6,19 @@ protocol~\cite{ongaro2014raft}, with EPaxos, a leaderless
 protocol~\cite{moraru2013epaxos}. Under the evaluated workloads and
 experimental conditions, Raft provided a comparatively simple and stable
 coordination structure, while EPaxos achieved higher throughput and lower
-latency in several of the evaluated scenarios and showed greater tolerance to
-individual replica failures.
+latency in several of the evaluated scenarios. The two protocols also
+exhibited different failure behaviour under the tested conditions.
 
-The results also highlight the costs associated with centralised leadership.
-In particular, Raft exhibited a noticeable availability cost when the leader
-failed, as well as limitations in write scalability as the number of replicas
-increased. These observations suggest that the leader can serve as an
-effective point for simplifying coordination and maintaining a clear ordering
-structure, but can also become a bottleneck for write processing and a single
-point of disruption during failures. In contrast, EPaxos distributes
-coordination across replicas, reducing its dependence on a single leader at
-the cost of a more complex consensus mechanism.
+The results highlight the costs associated with centralised leadership. In
+particular, Raft exhibited a noticeable availability cost when the leader
+failed, while increasing the replica count was associated with reduced
+throughput for both protocols and a more pronounced increase in latency for
+Raft. These observations show that a leader can provide a clear coordination
+point for replicated writes, but can also become a concentration point for
+processing and a point of disruption when it fails. In contrast, EPaxos
+distributes coordination across replicas, reducing its dependence on a single
+leader at the cost of a more complex consensus mechanism and higher memory
+consumption in the evaluated implementation.
 
 These findings should be interpreted within the scope of the experimental
 setup. The compared systems use different implementations, and
@@ -32,7 +33,11 @@ universal characteristics of the protocols in all deployment environments
 (Section~\ref{sec:threats}).
 
 Overall, the results demonstrate a fundamental trade-off between centralised
-and decentralised coordination in distributed consensus: leader-based
-coordination can simplify system behaviour and reasoning, while leaderless
-coordination can reduce dependence on a single coordination point and provide
-advantages under certain workloads and failure conditions.
+and distributed coordination in distributed consensus: leader-based
+coordination can simplify system behaviour and provide a clear ordering
+structure, while leaderless coordination can reduce dependence on a single
+coordination point and provide advantages under certain workloads and failure
+conditions. The experiments therefore indicate that the practical cost of a
+consensus architecture depends not only on its steady-state throughput, but
+also on how coordination, resource consumption, scaling, and failure recovery
+are distributed across the system.

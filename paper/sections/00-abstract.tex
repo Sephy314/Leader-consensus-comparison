@@ -1,3 +1,27 @@
 \begin{abstract}
-% TODO: Write the abstract after the experiments have been run.
+Leader-based consensus protocols such as Raft concentrate the ordering of
+replicated writes at a single elected leader, whereas leaderless protocols
+such as EPaxos distribute ordering across replicas. This paper measures what
+that difference costs in practice. Both protocols are evaluated under one
+benchmark methodology: the same workload generator, identical CPU and memory
+allocations, the same failure injection, and the same metrics, across six
+experiment families with ten independent repetitions each and replica counts
+from three to nine, on a single containerised host. EPaxos sustained a higher
+mean throughput than Raft at every replica count tested (1.29$\times$ to
+1.75$\times$, largest at five replicas) and a lower median latency at every
+replica count; the 95\,\% intervals of the means are separated at three and
+five replicas but overlap at seven and nine. Throughput decreased for both
+protocols as replicas were added (57\,\% for EPaxos and 50\,\% for Raft), so
+the scaling penalty is not specific to leader-based ordering. Aggregate CPU
+utilisation was similar for the two protocols, but its distribution was not:
+Raft concentrated utilisation on the current leader, while EPaxos spread it
+more evenly. Failure behaviour differed by failure role rather than by protocol
+alone: losing the Raft leader cost seconds of write availability and thousands
+of failed requests, whereas losing a Raft follower or an EPaxos replica cost
+tens of milliseconds. The write-ratio and conflict-ratio sweeps showed no
+systematic trend for either protocol, and EPaxos used about 1.8$\times$ the
+peak memory of Raft in the evaluated implementation. The two protocols are
+represented by different implementations and were measured on a single local
+host, so these results should not be read as universal properties of either
+protocol.
 \end{abstract}

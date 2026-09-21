@@ -149,9 +149,10 @@ replaces and why; the original attempt stays in the dataset. Excluded and
 replacement runs are reported, and the Execution Integrity section of the
 accompanying report states how many runs were affected.
 
-All aggregates are computed from the raw per-run observations. Every
-reported value carries its sample size $n$; means are reported with sample
-standard deviation and 95\,\% confidence intervals (Student's $t$). Latency
+All aggregates are computed from the raw per-run observations. Each
+configuration is evaluated over ten independent repetitions; means are
+reported with sample standard deviation and 95\,\% confidence intervals
+(Student's $t$). Latency
 distributions are reported as p50/p95/p99. For the election experiment we
 report the Pearson correlation between the measured number of failed
 elections and the availability gap, with $n$ and a $t$-based $p$-value, and
