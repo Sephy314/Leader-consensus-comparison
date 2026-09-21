@@ -126,7 +126,7 @@ func runSmoke(s SmokeSpec) error {
 	fmt.Println("stage 5 PASS")
 
 	fmt.Println("\n################ SMOKE STAGE 6/6: metrics ################")
-	if err := checkMetricsInventory(); err != nil {
+	if err := checkMetricsInventory(env.root); err != nil {
 		return fmt.Errorf("stage 6 (metrics) failed: %w", err)
 	}
 	fmt.Println("stage 6 PASS")
@@ -213,9 +213,9 @@ func readEvents(path string) (map[string]bool, error) {
 }
 
 // checkMetricsInventory verifies the most recent runs produced every expected
-// metrics file with the expected columns.
-func checkMetricsInventory() error {
-	root := filepath.Join(resultsDir(), "raw")
+// metrics file with the expected columns. root is the results root the smoke
+// session wrote to (smoke runs never write to the measured dataset).
+func checkMetricsInventory(root string) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err

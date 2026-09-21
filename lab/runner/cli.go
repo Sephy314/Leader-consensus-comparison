@@ -506,4 +506,16 @@ func applyRunDefaults(dst *labcfg.Run, src labcfg.Run) {
 	if dst.RaftElectionMS == 0 {
 		dst.RaftElectionMS = src.RaftElectionMS
 	}
+	if dst.RaftSnapshotThr == 0 {
+		dst.RaftSnapshotThr = src.RaftSnapshotThr
+	}
+	if dst.RaftTrailingLogs == 0 {
+		dst.RaftTrailingLogs = src.RaftTrailingLogs
+	}
+	if dst.HotKeys == 0 {
+		dst.HotKeys = src.HotKeys
+	}
+	if dst.ConflictPct == 0 {
+		dst.ConflictPct = src.ConflictPct
+	}
 }
