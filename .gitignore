@@ -11,6 +11,9 @@ paper/*.blg
 paper/*.log
 paper/*.out
 paper/*.pdf
+# ...except the built paper itself: the current draft is tracked so it can be
+# read without building it and linked directly from the repository.
+!paper/main.pdf
 paper/main.fdb_latexmk
 paper/main.fls
 
