@@ -78,12 +78,65 @@ type Run struct {
 	// conflict branch is taken (default 1 = maximal contention).
 	HotKeys int `json:"hot_keys"`
 
+	// Implementation selects which implementation of the protocol is under
+	// test. Empty means the protocol's primary implementation (the one used by
+	// the original experiment matrix), so every pre-existing configuration
+	// keeps its exact meaning. The implementation-sensitivity experiment
+	// additionally evaluates "etcd" (go.etcd.io/raft/v3) and "nvb"
+	// (github.com/nvanbenschoten/epaxos).
+	Implementation string `json:"implementation"`
+
 	// Protocol integration details (recorded, not tuned per protocol).
 	GOMAXPROCS       int `json:"gomaxprocs"`
 	RaftHeartbeatMS  int `json:"raft_heartbeat_ms"`
 	RaftElectionMS   int `json:"raft_election_ms"`
 	RaftSnapshotThr  int `json:"raft_snapshot_threshold"`
 	RaftTrailingLogs int `json:"raft_trailing_logs"`
+}
+
+// Implementation names. The two primary names are the implementations the
+// original experiment matrix used; the two independent names are the ones
+// added for the implementation-sensitivity experiment.
+const (
+	ImplHashicorp = "hashicorp" // Raft primary:    github.com/hashicorp/raft
+	ImplEtcd      = "etcd"      // Raft independent: go.etcd.io/raft/v3
+	ImplOriginal  = "original"  // EPaxos primary:   efficient/epaxos
+	ImplNVB       = "nvb"       // EPaxos independent: github.com/nvanbenschoten/epaxos
+)
+
+// PrimaryImpl returns the primary implementation name for a protocol: the
+// implementation whose results are already in the recorded dataset.
+func PrimaryImpl(protocol string) string {
+	if protocol == "epaxos" {
+		return ImplOriginal
+	}
+	return ImplHashicorp
+}
+
+// Impl returns the effective implementation name. An empty Implementation
+// field means the protocol's primary implementation.
+func (r Run) Impl() string {
+	if r.Implementation != "" {
+		return r.Implementation
+	}
+	return PrimaryImpl(r.Protocol)
+}
+
+// IsPrimary reports whether this run uses the protocol's primary
+// implementation. Primary runs keep their historical run IDs so the recorded
+// dataset and the sensitivity dataset never collide.
+func (r Run) IsPrimary() bool { return r.Impl() == PrimaryImpl(r.Protocol) }
+
+// ImplSupported reports whether an implementation name is valid for a
+// protocol.
+func ImplSupported(protocol, impl string) bool {
+	switch protocol {
+	case "raft":
+		return impl == ImplHashicorp || impl == ImplEtcd
+	case "epaxos":
+		return impl == ImplOriginal || impl == ImplNVB
+	}
+	return false
 }
 
 // Default returns a Run with documented defaults applied.
@@ -137,6 +190,10 @@ func Load(path string) (Run, error) {
 func (r Run) Validate() error {
 	if r.Protocol != "raft" && r.Protocol != "epaxos" {
 		return fmt.Errorf("protocol must be raft or epaxos, got %q", r.Protocol)
+	}
+	if r.Implementation != "" && !ImplSupported(r.Protocol, r.Implementation) {
+		return fmt.Errorf("implementation %q is not valid for protocol %q (raft: %s|%s, epaxos: %s|%s)",
+			r.Implementation, r.Protocol, ImplHashicorp, ImplEtcd, ImplOriginal, ImplNVB)
 	}
 	if r.Replicas < 1 || r.Replicas > 9 {
 		return fmt.Errorf("replicas must be in [1,9], got %d", r.Replicas)
