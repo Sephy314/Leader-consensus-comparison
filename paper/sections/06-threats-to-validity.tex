@@ -1,4 +1,5 @@
 \section{Threats to Validity}
+
 \label{sec:threats}
 
 \subsection{External Validity}
@@ -11,6 +12,15 @@ virtualisation layer between the containers and the hardware. Cluster sizes are
 measured phase is 20\,s. The results therefore describe short, uniform,
 single-host runs rather than long-lived deployments with skewed access patterns
 or large payloads.
+
+The benchmark also places multiple replicas, the client, and the control
+processes on the same host. Consequently, processes may compete for host CPU
+resources, and the measured resource utilisation can depend on host-level
+scheduling and contention. The experiments detect anomalous resource
+conditions, but do not provide strict CPU or hardware isolation. Resource
+utilisation should therefore be interpreted as an observation under the
+evaluated environment rather than as an implementation-independent resource
+requirement.
 
 Reads are routed through consensus in both protocols and no Raft-specific read
 optimisation is enabled, so the read comparison is one of equivalent consistency
@@ -26,9 +36,27 @@ choices such as batching, storage, networking, scheduling, configuration
 defaults, and optimisation level. In particular, the use of HashiCorp Raft and
 the original EPaxos research implementation means that the measured differences
 cannot be attributed exclusively to the underlying ordering architecture.
+
+The EPaxos implementation is additionally modified to support the dependency-set
+sizes required by the 7- and 9-replica configurations. These modifications are
+part of the evaluated implementation and may contribute to the observed
+performance at those replica counts. The results at larger cluster sizes should
+therefore not be interpreted as isolating the cost of the EPaxos protocol from
+the cost of this implementation extension.
+
 Repeating the comparison with multiple independent implementations of each
 protocol would provide stronger evidence for generalising from these specific
 implementations to the broader leader-based and leaderless design classes.
+
+The failure and leader-election experiments are conducted with three replicas.
+Their recovery times therefore characterise the evaluated three-replica
+configuration and should not be interpreted as establishing recovery behaviour
+for larger clusters.
+
+For Raft, the observed leader-recovery interval also depends on the configured
+heartbeat and election-timeout parameters. The reported recovery times should
+therefore be interpreted relative to the evaluated timing configuration rather
+than as protocol-independent bounds on Raft recovery.
 
 \subsection{Statistical Conclusion Validity}
 
@@ -42,4 +70,13 @@ read only differences that exceed this reproducibility band and treat the
 overlapping comparisons as inconclusive rather than as small effects. Numerous
 configurations are compared without a multiplicity correction, so an isolated
 configuration-level difference should not be read as an established effect.
-Outliers within clean runs are not removed.
+
+The 20\,s measurement window also limits the extent to which the experiments
+characterise long-term steady-state behaviour. The reported results should
+therefore be understood as measurements over the specified workload and
+measurement interval rather than as estimates of indefinite long-running
+performance.
+Outliers within clean runs are not removed. Runs identified as affected by
+environmental interference or measurement failure are investigated separately
+and are not excluded solely because their performance is inconvenient for the
+comparison.
