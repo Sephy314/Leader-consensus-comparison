@@ -22,13 +22,14 @@ EPaxos and 50\% lower for Raft. The EPaxos/Raft ratio of the means was
 1.29$\times$ at 9.
 
 Because the same nominal configuration (3 replicas, 100\,\% writes,
-concurrency 32) is exercised independently by four experiment families, it
-also measures the run-to-run variability of a mean over ten repetitions.
-Those four means were 4{,}282 (workload), 4{,}006 (concurrency), 4{,}221
-(conflict at 0\,\%) and 3{,}531\,req/s (scaling) for Raft, and 4{,}926,
-5{,}011, 5{,}147 and 5{,}330\,req/s for EPaxos. EPaxos's four means lie
-within 8\% of each other; Raft's span 21\%, with the scaling-family mean the
-lowest and the most variable across repetitions (SD 1{,}453\,req/s against a
+concurrency 32) is exercised independently by four steady-state experiment
+families, it also measures the run-to-run variability of a mean over ten
+repetitions. Those four means were 4{,}282 (workload), 4{,}006 (concurrency),
+4{,}221 (conflict at 0\,\%) and 3{,}531\,req/s (scaling) for Raft, and
+4{,}926, 5{,}011, 5{,}147 and 5{,}330\,req/s for EPaxos. EPaxos's four means
+lie within 8\% of each other; Raft's span 21\%, with the scaling-family mean
+the lowest and the most variable across repetitions (SD 1{,}453\,req/s
+against a
 mean of 3{,}531). Protocol differences below this magnitude should not be
 read out of a single family.
 
