@@ -1,0 +1,15 @@
+\begin{table}[t]
+\caption{Median (p50) latency in milliseconds by replica count, at
+100\,\% writes and concurrency 32.}
+\label{tab:latency}
+\begin{tabular}{lrr}
+\toprule
+Replicas & Raft p50 (ms) & EPaxos p50 (ms) \\
+\midrule
+3 & 12.3 & 5.6 \\
+5 & 16.8 & 5.6 \\
+7 & 25.5 & 6.0 \\
+9 & 22.8 & 6.2 \\
+\bottomrule
+\end{tabular}
+\end{table}

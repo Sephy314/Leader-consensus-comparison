@@ -32,21 +32,7 @@ lowest and the most variable across repetitions (SD 1{,}453\,req/s against a
 mean of 3{,}531). Protocol differences below this magnitude should not be
 read out of a single family.
 
-\begin{table}[t]
-\caption{Throughput (req/s, mean of 10 repetitions) by replica count, at
-100\,\% writes and concurrency 32.}
-\label{tab:scaling}
-\begin{tabular}{lrrr}
-\toprule
-Replicas & Raft & EPaxos & EPaxos/Raft \\
-\midrule
-3 & 3{,}531 & 5{,}330 & 1.51$\times$ \\
-5 & 2{,}841 & 4{,}969 & 1.75$\times$ \\
-7 & 2{,}108 & 2{,}864 & 1.36$\times$ \\
-9 & 1{,}768 & 2{,}283 & 1.29$\times$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/tab-scaling}
 
 \begin{figure}[t]
     \centering
@@ -114,21 +100,7 @@ Raft median rose to 16.8\,ms at 5 replicas and 25.5\,ms at 7, then fell to
 22.8\,ms at 9, while the EPaxos median stayed between 5.6\,ms and 6.2\,ms
 across the same range (Table~\ref{tab:latency}).
 
-\begin{table}[t]
-\caption{Median (p50) latency in milliseconds by replica count, at
-100\,\% writes and concurrency 32.}
-\label{tab:latency}
-\begin{tabular}{lrr}
-\toprule
-Replicas & Raft p50 (ms) & EPaxos p50 (ms) \\
-\midrule
-3 & 12.3 & 5.6 \\
-5 & 16.8 & 5.6 \\
-7 & 25.5 & 6.0 \\
-9 & 22.8 & 6.2 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/tab-latency}
 
 \begin{figure}[t]
     \centering
@@ -197,21 +169,7 @@ failed requests. Killing an EPaxos replica produced a gap of
 \texttt{success}; the failed requests are those issued during the
 transition.
 
-\begin{table}[t]
-\caption{Failure behaviour at 3 replicas, 100\,\% writes, concurrency 32.
-Gap is the largest interval with no successful write completion after
-failure injection.}
-\label{tab:failure}
-\begin{tabular}{llrr}
-\toprule
-Failure & Protocol & Gap (s) & Failed req. \\
-\midrule
-Leader kill & Raft & 1.81--4.74 & 2{,}169--4{,}133 \\
-Follower kill & Raft & 0.02--0.04 & 0 \\
-Replica kill & EPaxos & 0.02--0.09 & 10--106 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/tab-failure}
 
 \begin{figure*}[t]
     \centering

@@ -1,0 +1,15 @@
+\begin{table}[t]
+\caption{Failure behaviour at 3 replicas, 100\,\% writes, concurrency 32.
+Gap is the largest interval with no successful write completion after
+failure injection.}
+\label{tab:failure}
+\begin{tabular}{llrr}
+\toprule
+Failure & Protocol & Gap (s) & Failed req. \\
+\midrule
+Leader kill & Raft & 1.81--4.74 & 2{,}169--4{,}133 \\
+Follower kill & Raft & 0.02--0.04 & 0 \\
+Replica kill & EPaxos & 0.02--0.09 & 10--106 \\
+\bottomrule
+\end{tabular}
+\end{table}

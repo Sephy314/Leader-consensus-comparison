@@ -1,0 +1,15 @@
+\begin{table}[t]
+\caption{Throughput (req/s, mean of 10 repetitions) by replica count, at
+100\,\% writes and concurrency 32.}
+\label{tab:scaling}
+\begin{tabular}{lrrr}
+\toprule
+Replicas & Raft & EPaxos & EPaxos/Raft \\
+\midrule
+3 & 3{,}531 & 5{,}330 & 1.51$\times$ \\
+5 & 2{,}841 & 4{,}969 & 1.75$\times$ \\
+7 & 2{,}108 & 2{,}864 & 1.36$\times$ \\
+9 & 1{,}768 & 2{,}283 & 1.29$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
