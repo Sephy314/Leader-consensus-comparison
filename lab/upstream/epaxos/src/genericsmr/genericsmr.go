@@ -2,6 +2,7 @@ package genericsmr
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fastrpc"
 	"fmt"
@@ -65,6 +66,16 @@ type Replica struct {
 	Ewma []float64
 
 	OnClientConnect chan bool
+
+	// outbox decouples the state-machine loop from the network: SendMsg and
+	// friends marshal immediately and enqueue the bytes, and a per-peer
+	// sender goroutine performs the blocking writes. Without this, a peer
+	// whose TCP buffer is full stalls the whole consensus loop (the loop
+	// both sends and drains inbound messages). The queue is bounded so the
+	// loop cannot race ahead of the network: an unbounded queue lets a
+	// startup burst fill the peers' inbound channels and stall the first
+	// requests.
+	outbox []chan outMsg
 }
 
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool) *Replica {
@@ -91,7 +102,12 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(map[uint8]*RPCPair),
 		genericsmrproto.GENERIC_SMR_BEACON_REPLY + 1,
 		make([]float64, len(peerAddrList)),
-		make(chan bool, 100)}
+		make(chan bool, 100),
+		make([]chan outMsg, len(peerAddrList))}
+
+	for i := range r.outbox {
+		r.outbox[i] = make(chan outMsg, outboxCap)
+	}
 
 	var err error
 
@@ -153,6 +169,7 @@ func (r *Replica) ConnectToPeers() {
 			continue
 		}
 		go r.replicaListener(rid, reader)
+		go r.sender(int32(rid))
 	}
 }
 
@@ -184,6 +201,13 @@ func (r *Replica) ConnectToPeersNoListeners() {
 	}
 	<-done
 	log.Printf("Replica id: %d. Done connecting to peers\n", r.Id)
+
+	for rid := range r.PeerReaders {
+		if int32(rid) == r.Id {
+			continue
+		}
+		go r.sender(int32(rid))
+	}
 }
 
 /* Peer (replica) connections dispatcher */
@@ -321,17 +345,67 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 	return code
 }
 
-func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
+// outboxCap bounds each peer's outbound queue. A bounded queue provides
+// backpressure: when a peer's queue is full, the state-machine loop waits
+// instead of racing ahead of the network.
+const outboxCap = 1024
+
+// outMsg is one queued outbound protocol message, marshalled at enqueue
+// time. The upstream protocol handlers reuse package-level message objects
+// (e.g. the `pa` PreAccept), so the payload must be captured before the
+// handler returns; the sender only writes bytes.
+type outMsg struct {
+	data []byte
+}
+
+// The upstream beacon payloads have Marshal/Unmarshal but no New(), so they do
+// not satisfy fastrpc.Serializable themselves. These thin adapters let the
+// beacons share the outbox and therefore the non-blocking send path; the
+// wire format is unchanged.
+type beaconMsg struct{ genericsmrproto.Beacon }
+
+func (b *beaconMsg) Marshal(w io.Writer)         { b.Beacon.Marshal(w) }
+func (b *beaconMsg) Unmarshal(r io.Reader) error { return b.Beacon.Unmarshal(r) }
+func (b *beaconMsg) New() fastrpc.Serializable   { return &beaconMsg{} }
+
+type beaconReplyMsg struct{ genericsmrproto.BeaconReply }
+
+func (b *beaconReplyMsg) Marshal(w io.Writer)         { b.BeaconReply.Marshal(w) }
+func (b *beaconReplyMsg) Unmarshal(r io.Reader) error { return b.BeaconReply.Unmarshal(r) }
+func (b *beaconReplyMsg) New() fastrpc.Serializable   { return &beaconReplyMsg{} }
+
+// enqueue marshals a message immediately and queues the bytes for the
+// peer's sender goroutine. Marshalling happens here, not in the sender,
+// because the upstream handlers reuse package-level message objects: the
+// payload must be captured before the handler returns. The queue is
+// bounded, so enqueue blocks only when the peer is genuinely slow (the
+// same backpressure the original inline send provided), never on the
+// network itself.
+func (r *Replica) enqueue(peerId int32, code uint8, msg fastrpc.Serializable) {
+	var buf bytes.Buffer
+	buf.WriteByte(code)
+	msg.Marshal(&buf)
+	r.outbox[peerId] <- outMsg{data: buf.Bytes()}
+}
+
+// sender is the per-peer goroutine performing the blocking writes. It is
+// the only goroutine writing to its peer's PeerWriter, so per-peer message
+// ordering is preserved and the state-machine loop never blocks on the
+// network.
+func (r *Replica) sender(peerId int32) {
 	w := r.PeerWriters[peerId]
-	w.WriteByte(code)
-	msg.Marshal(w)
-	w.Flush()
+	for om := range r.outbox[peerId] {
+		w.Write(om.data)
+		w.Flush()
+	}
+}
+
+func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
+	r.enqueue(peerId, code, msg)
 }
 
 func (r *Replica) SendMsgNoFlush(peerId int32, code uint8, msg fastrpc.Serializable) {
-	w := r.PeerWriters[peerId]
-	w.WriteByte(code)
-	msg.Marshal(w)
+	r.enqueue(peerId, code, msg)
 }
 
 func (r *Replica) ReplyPropose(reply *genericsmrproto.ProposeReply, w *bufio.Writer) {
@@ -351,19 +425,13 @@ func (r *Replica) ReplyProposeTS(reply *genericsmrproto.ProposeReplyTS, w *bufio
 }
 
 func (r *Replica) SendBeacon(peerId int32) {
-	w := r.PeerWriters[peerId]
-	w.WriteByte(genericsmrproto.GENERIC_SMR_BEACON)
-	beacon := &genericsmrproto.Beacon{rdtsc.Cputicks()}
-	beacon.Marshal(w)
-	w.Flush()
+	r.enqueue(peerId, genericsmrproto.GENERIC_SMR_BEACON,
+		&beaconMsg{genericsmrproto.Beacon{Timestamp: rdtsc.Cputicks()}})
 }
 
 func (r *Replica) ReplyBeacon(beacon *Beacon) {
-	w := r.PeerWriters[beacon.Rid]
-	w.WriteByte(genericsmrproto.GENERIC_SMR_BEACON_REPLY)
-	rb := &genericsmrproto.BeaconReply{beacon.Timestamp}
-	rb.Marshal(w)
-	w.Flush()
+	r.enqueue(beacon.Rid, genericsmrproto.GENERIC_SMR_BEACON_REPLY,
+		&beaconReplyMsg{genericsmrproto.BeaconReply{Timestamp: beacon.Timestamp}})
 }
 
 // updates the preferred order in which to communicate with peers according to a preferred quorum

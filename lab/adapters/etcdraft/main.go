@@ -14,7 +14,8 @@
 //  2. storage             — MemoryStorage plus a fsynced write-ahead log, so
 //     HardState and Entries are durable before the
 //     corresponding Ready messages are sent
-//  3. Ready/Advance loop  — persist, send, apply, compact, advance
+//  3. Ready loop          — route Ready messages: local storage messages to
+//     dedicated append/apply threads, everything else to the transport
 //  4. proposal submission and committed-entry application
 //  5. the benchmark client wire protocol (PROPOSE -> ProposeReplyTS)
 //  6. the admin RPC surface the runner and the raft master use
@@ -30,6 +31,12 @@
 //     to the values in the library's own README example (4096 / 256).
 //   - PreVote: enabled, matching HashiCorp Raft v1.7.3, which enables
 //     pre-vote by default.
+//   - AsyncStorageWrites: enabled. The default Ready/Advance contract
+//     serializes the processing loop (the next Ready waits for Advance), so
+//     fsync and the network send sit on the proposal critical path. The async
+//     interface turns storage writes into messages handled by dedicated
+//     threads, with batched WAL fsyncs — the same structure HashiCorp Raft
+//     has internally (group commit plus a separate FSM goroutine).
 //   - Log compaction: the library has no snapshot threshold/trailing-logs
 //     policy, so entries below (applied - trailing-logs) are compacted, which
 //     mirrors HashiCorp Raft's TrailingLogs setting.
@@ -69,6 +76,7 @@ var (
 	clientPort  = flag.Int("client-port", 7070, "benchmark client port (genericsmr wire protocol)")
 	raftPort    = flag.Int("raft-port", 6000, "raft peer transport port")
 	dir         = flag.String("dir", "/data", "directory for the write-ahead log")
+	noWAL       = flag.Bool("no-wal", false, "run the raft core with in-memory storage only (no write-ahead log, no fsync)")
 	gomaxprocs  = flag.Int("gomaxprocs", 4, "GOMAXPROCS")
 	heartbeatMS = flag.Int("heartbeat-ms", 1000, "raft heartbeat timeout (ms)")
 	electionMS  = flag.Int("election-ms", 2000, "raft election timeout (ms)")
@@ -171,6 +179,13 @@ func decodeCommand(b []byte) (uint64, state.Command, bool) {
 // library ships no transport, so this is the adapter's. Each peer gets one
 // persistent connection; writes to different peers are independent, so the
 // transport introduces no global lock on the send path.
+//
+// The send path is deliberately decoupled from the Ready loop: send()
+// marshals immediately and enqueues the bytes, and a per-peer sender
+// goroutine performs the blocking network I/O. The library's Ready channel
+// is unbuffered, so a synchronous send inside the Ready loop would stall
+// proposal and inbound processing whenever a peer's TCP buffer is full.
+// The queue is bounded so the loop cannot race ahead of the network.
 type transport struct {
 	selfID uint64
 	port   int
@@ -179,6 +194,11 @@ type transport struct {
 
 	mu    sync.Mutex
 	conns map[uint64]*peerConn
+
+	// outbox is the per-peer bounded queue of marshalled outbound
+	// messages, drained by that peer's sender goroutine. Per-peer ordering
+	// is preserved because each peer has exactly one sender.
+	outbox map[uint64]chan []byte
 
 	isoUntil   atomic.Int64
 	droppedPre atomic.Int64
@@ -193,7 +213,17 @@ type peerConn struct {
 }
 
 func newTransport(selfID uint64, port int, addrs map[uint64]string) *transport {
-	return &transport{selfID: selfID, port: port, addrs: addrs, conns: make(map[uint64]*peerConn)}
+	outbox := make(map[uint64]chan []byte, len(addrs))
+	for id := range addrs {
+		outbox[id] = make(chan []byte, outboxCap)
+	}
+	return &transport{
+		selfID: selfID,
+		port:   port,
+		addrs:  addrs,
+		conns:  make(map[uint64]*peerConn),
+		outbox: outbox,
+	}
 }
 
 func (t *transport) listen() error {
@@ -283,9 +313,18 @@ func (pc *peerConn) close() {
 	pc.nc, pc.w = nil, nil
 }
 
-// send delivers outbound Ready messages. While election isolation is active,
-// vote requests are dropped and counted instead of being delivered, which is
-// the same injection the HashiCorp adapter performs.
+// outboxCap bounds each peer's outbound queue. A bounded queue provides
+// backpressure: when a peer's queue is full, the Ready loop waits instead
+// of racing ahead of the network.
+const outboxCap = 1024
+
+// send marshals each message immediately and enqueues the bytes for the
+// peer's sender goroutine. Marshalling happens here, not in the sender,
+// because the raftpb.Message objects are reused by the library. The queue
+// is bounded, so send blocks only when the peer is genuinely slow, never
+// on the network itself. While election isolation is active, vote requests
+// are dropped and counted instead of being delivered, which is the same
+// injection the HashiCorp adapter performs.
 func (t *transport) send(msgs []*pb.Message) {
 	for _, m := range msgs {
 		if t.isolated() {
@@ -304,22 +343,31 @@ func (t *transport) send(msgs []*pb.Message) {
 			}
 			continue
 		}
-		if err := t.sendOne(m); err != nil {
-			log.Printf("send to %d: %v", m.GetTo(), err)
+		body, err := gproto.Marshal(m)
+		if err != nil {
+			log.Printf("marshal: %v", err)
+			continue
+		}
+		frame := make([]byte, 4+len(body))
+		binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))
+		copy(frame[4:], body)
+		t.outbox[m.GetTo()] <- frame
+	}
+}
+
+// sender is the per-peer goroutine performing the blocking writes. It is
+// the only goroutine writing to its peer's connection, so per-peer message
+// ordering is preserved and the Ready loop never blocks on the network.
+func (t *transport) sender(id uint64) {
+	for frame := range t.outbox[id] {
+		if err := t.sendOne(id, frame); err != nil {
+			log.Printf("send to %d: %v", id, err)
 		}
 	}
 }
 
-func (t *transport) sendOne(m *pb.Message) error {
-	body, err := gproto.Marshal(m)
-	if err != nil {
-		return err
-	}
-	frame := make([]byte, 4+len(body))
-	binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))
-	copy(frame[4:], body)
-
-	pc := t.peer(m.GetTo())
+func (t *transport) sendOne(id uint64, frame []byte) error {
+	pc := t.peer(id)
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	if err := pc.write(frame); err != nil {
@@ -348,13 +396,15 @@ func (t *transport) droppedVotes() int64    { return t.droppedV.Load() }
 // Replica is the RPC surface exposed to the lab's raft master and to the
 // runner (clientPort+1000), mirroring the HashiCorp adapter's surface.
 type Replica struct {
-	myIdx int
-	node  raft.Node
-	ms    *raft.MemoryStorage
-	tr    *transport
-	pend  *pending
-	st    *state.State
-	lead  atomic.Int64
+	myIdx   int
+	myID    uint64 // raft id (nodeList index + 1)
+	node    raft.Node
+	ms      *raft.MemoryStorage
+	tr      *transport
+	pend    *pending
+	st      *state.State
+	lead    atomic.Int64
+	applied atomic.Uint64 // last applied index, published for the append thread's compaction
 }
 
 func (r *Replica) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
@@ -475,89 +525,190 @@ func (r *Replica) handleClient(conn net.Conn) {
 
 // ---- ready loop ----
 
-// handleReady implements the library's documented Ready/Advance contract:
-// persist HardState and Entries before sending messages, then send, apply the
-// committed entries, and advance.
-func (r *Replica) handleReady(rd raft.Ready, w *wal, node raft.Node, applied, lastCompact *uint64) {
-	if err := w.append(rd.HardState, rd.Entries, rd.MustSync); err != nil {
-		log.Fatalf("wal append: %v", err)
-	}
-	if !raft.IsEmptySnap(rd.Snapshot) {
-		if err := r.ms.ApplySnapshot(rd.Snapshot); err != nil {
-			log.Fatalf("apply snapshot: %v", err)
-		}
-	}
-	if len(rd.Entries) > 0 {
-		if err := r.ms.Append(rd.Entries); err != nil {
-			log.Fatalf("storage append: %v", err)
-		}
-	}
-	if !raft.IsEmptyHardState(rd.HardState) {
-		if err := r.ms.SetHardState(rd.HardState); err != nil {
-			log.Fatalf("set hard state: %v", err)
-		}
-	}
+// The library's default Ready/Advance contract serializes the whole
+// processing loop: the next Ready is not produced until Advance() is called,
+// so a slow fsync or a slow network write stalls proposals. The library
+// offers an alternative interface, AsyncStorageWrites, which turns local
+// storage operations into messages (MsgStorageAppend / MsgStorageApply)
+// carried in Ready.Message. The main loop then only routes messages; the
+// durable write and the state-machine apply happen on dedicated threads, and
+// the responses (which include the messages that must wait for durability,
+// e.g. MsgApp to followers) are delivered by those threads. This is the
+// library's documented usage (doc.go, "Usage with Asynchronous Storage
+// Writes") and mirrors HashiCorp Raft's structure: a leader loop that only
+// dispatches, a separate FSM goroutine, and batched log stores.
 
-	if rd.SoftState != nil {
-		if rd.SoftState.Lead == 0 {
-			r.lead.Store(-1)
-		} else {
-			r.lead.Store(int64(rd.SoftState.Lead) - 1) // raft ids are index+1
+// appendBatchMax bounds how many MsgStorageAppend messages one WAL write
+// covers. HashiCorp Raft groups up to MaxAppendEntries (64) proposals into
+// one StoreLogs transaction; this is the same group-commit bound for the
+// etcd adapter.
+const appendBatchMax = 64
+
+// appendThread owns the durable log. It receives MsgStorageAppend messages
+// in order, writes their entries and hard state to the WAL (one write, one
+// fsync per batch), mirrors them into MemoryStorage, compacts the log, and
+// only then delivers the message responses — the messages that must not be
+// sent before the write is durable (MsgApp to followers) and the
+// MsgStorageAppendResp that tells raft the entries are stable.
+func (r *Replica) appendThread(w *wal, node raft.Node, ch <-chan *pb.Message) {
+	var lastCompact uint64
+	for {
+		m, ok := <-ch
+		if !ok {
+			return
 		}
-	}
-
-	r.tr.send(rd.Messages)
-
-	for _, e := range rd.CommittedEntries {
-		switch e.GetType() {
-		case pb.EntryType_EntryNormal:
-			if len(e.Data) == 0 {
-				continue // empty entry appended by a new leader
-			}
-			reqID, cmd, ok := decodeCommand(e.Data)
-			if !ok {
-				continue
-			}
-			r.pend.deliver(reqID, cmd.Execute(r.st))
-			*applied = e.GetIndex()
-		case pb.EntryType_EntryConfChange:
-			var cc pb.ConfChange
-			if err := gproto.Unmarshal(e.Data, &cc); err == nil {
-				node.ApplyConfChange(&cc)
-			}
-			*applied = e.GetIndex()
-		case pb.EntryType_EntryConfChangeV2:
-			var cc pb.ConfChangeV2
-			if err := gproto.Unmarshal(e.Data, &cc); err == nil {
-				node.ApplyConfChange(&cc)
-			}
-			*applied = e.GetIndex()
-		}
-	}
-
-	// Compact below (applied - trailing-logs), mirroring HashiCorp Raft's
-	// TrailingLogs policy. The library provides no such policy itself.
-	if *applied > uint64(*trailingLog)+1 {
-		if to := *applied - uint64(*trailingLog); to > *lastCompact {
-			if err := r.ms.Compact(to); err == nil {
-				*lastCompact = to
+		batch := []*pb.Message{m}
+	drain:
+		for len(batch) < appendBatchMax {
+			select {
+			case m2 := <-ch:
+				batch = append(batch, m2)
+			default:
+				break drain
 			}
 		}
-	}
 
-	node.Advance()
+		items := make([]walItem, 0, len(batch))
+		sync := false
+		var lastAppended uint64
+		for _, bm := range batch {
+			hs := &pb.HardState{Term: bm.Term, Vote: bm.Vote, Commit: bm.Commit}
+			if !raft.IsEmptyHardState(hs) || len(bm.GetEntries()) > 0 {
+				items = append(items, walItem{hs: hs, entries: bm.GetEntries()})
+			}
+			// Durability is required exactly when someone is waiting on it:
+			// the message's responses are delivered only after the write.
+			if len(bm.GetResponses()) > 0 {
+				sync = true
+			}
+			if n := len(bm.GetEntries()); n > 0 {
+				lastAppended = bm.GetEntries()[n-1].GetIndex()
+			}
+			if !raft.IsEmptySnap(bm.GetSnapshot()) {
+				if err := r.ms.ApplySnapshot(bm.GetSnapshot()); err != nil {
+					log.Fatalf("apply snapshot: %v", err)
+				}
+			}
+		}
+		if w != nil {
+			if err := w.appendBatch(items, sync); err != nil {
+				log.Fatalf("wal append: %v", err)
+			}
+		}
+		for _, bm := range batch {
+			if len(bm.GetEntries()) > 0 {
+				if err := r.ms.Append(bm.GetEntries()); err != nil {
+					log.Fatalf("storage append: %v", err)
+				}
+			}
+			hs := &pb.HardState{Term: bm.Term, Vote: bm.Vote, Commit: bm.Commit}
+			if !raft.IsEmptyHardState(hs) {
+				if err := r.ms.SetHardState(hs); err != nil {
+					log.Fatalf("set hard state: %v", err)
+				}
+			}
+		}
+
+		// Compact below (applied - trailing-logs), mirroring HashiCorp
+		// Raft's TrailingLogs policy. The apply thread publishes the applied
+		// index; compaction only ever covers entries this thread has already
+		// appended, so MemoryStorage.Compact cannot run past the stable log.
+		if applied := r.applied.Load(); applied > uint64(*trailingLog)+1 {
+			if to := applied - uint64(*trailingLog); to > lastCompact && to <= lastAppended {
+				if err := r.ms.Compact(to); err == nil {
+					lastCompact = to
+				}
+			}
+		}
+
+		for _, bm := range batch {
+			for _, resp := range bm.GetResponses() {
+				if resp.GetTo() == r.myID {
+					if err := node.Step(context.Background(), resp); err != nil {
+						log.Printf("local step: %v", err)
+					}
+				} else {
+					r.tr.send([]*pb.Message{resp})
+				}
+			}
+		}
+	}
 }
 
+// applyThread owns the state machine. It receives MsgStorageApply messages
+// in order, applies the committed entries, and delivers the responses (the
+// MsgStorageApplyResp that tells raft the entries are applied).
+func (r *Replica) applyThread(node raft.Node, ch <-chan *pb.Message) {
+	for m := range ch {
+		for _, e := range m.GetEntries() {
+			switch e.GetType() {
+			case pb.EntryType_EntryNormal:
+				if len(e.Data) == 0 {
+					continue // empty entry appended by a new leader
+				}
+				reqID, cmd, ok := decodeCommand(e.Data)
+				if !ok {
+					continue
+				}
+				r.pend.deliver(reqID, cmd.Execute(r.st))
+			case pb.EntryType_EntryConfChange:
+				var cc pb.ConfChange
+				if err := gproto.Unmarshal(e.Data, &cc); err == nil {
+					node.ApplyConfChange(&cc)
+				}
+			case pb.EntryType_EntryConfChangeV2:
+				var cc pb.ConfChangeV2
+				if err := gproto.Unmarshal(e.Data, &cc); err == nil {
+					node.ApplyConfChange(&cc)
+				}
+			}
+			r.applied.Store(e.GetIndex())
+		}
+		for _, resp := range m.GetResponses() {
+			if resp.GetTo() == r.myID {
+				if err := node.Step(context.Background(), resp); err != nil {
+					log.Printf("local step: %v", err)
+				}
+			} else {
+				r.tr.send([]*pb.Message{resp})
+			}
+		}
+	}
+}
+
+// run is the library's documented async-storage-writes loop: tick, read
+// Ready, and route every message — local storage messages to their threads,
+// everything else to the transport. There is no Advance: the storage
+// threads' responses take its place.
 func (r *Replica) run(w *wal, node raft.Node) {
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
-	var applied, lastCompact uint64
+	toAppend := make(chan *pb.Message, 1024)
+	toApply := make(chan *pb.Message, 1024)
+	go r.appendThread(w, node, toAppend)
+	go r.applyThread(node, toApply)
 	for {
 		select {
 		case <-ticker.C:
 			node.Tick()
 		case rd := <-node.Ready():
-			r.handleReady(rd, w, node, &applied, &lastCompact)
+			if rd.SoftState != nil {
+				if rd.SoftState.Lead == 0 {
+					r.lead.Store(-1)
+				} else {
+					r.lead.Store(int64(rd.SoftState.Lead) - 1) // raft ids are index+1
+				}
+			}
+			for _, m := range rd.Messages {
+				switch m.GetTo() {
+				case raft.LocalAppendThread:
+					toAppend <- m
+				case raft.LocalApplyThread:
+					toApply <- m
+				default:
+					r.tr.send([]*pb.Message{m})
+				}
+			}
 		}
 	}
 }
@@ -591,8 +742,10 @@ func main() {
 		}
 		*myAddr = host
 	}
-	if err := os.MkdirAll(*dir, 0o755); err != nil {
-		log.Fatal(err)
+	if !*noWAL {
+		if err := os.MkdirAll(*dir, 0o755); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	replicaID, nodeList := registerWithMaster(*masterAddr, *myAddr, *clientPort)
@@ -610,14 +763,18 @@ func main() {
 	}
 
 	ms := raft.NewMemoryStorage()
-	if err := loadWAL(walPath(), ms); err != nil {
-		log.Fatalf("replaying wal: %v", err)
+	var w *wal
+	if !*noWAL {
+		if err := loadWAL(walPath(), ms); err != nil {
+			log.Fatalf("replaying wal: %v", err)
+		}
+		var err error
+		w, err = openWAL(walPath())
+		if err != nil {
+			log.Fatalf("opening wal: %v", err)
+		}
+		defer w.Close()
 	}
-	w, err := openWAL(walPath())
-	if err != nil {
-		log.Fatalf("opening wal: %v", err)
-	}
-	defer w.Close()
 
 	tr := newTransport(myID, *raftPort, peerAddrs)
 
@@ -626,18 +783,20 @@ func main() {
 		log.Fatalf("election timeout (%d ticks) must exceed heartbeat timeout (%d ticks)", electionTick, heartbeatTick)
 	}
 	cfg := &raft.Config{
-		ID:              myID,
-		ElectionTick:    electionTick,
-		HeartbeatTick:   heartbeatTick,
-		Storage:         ms,
-		MaxSizePerMsg:   4096, // library README example values; the library
-		MaxInflightMsgs: 256,  // provides no defaults
-		PreVote:         true, // HashiCorp Raft enables pre-vote by default
+		ID:                 myID,
+		ElectionTick:       electionTick,
+		HeartbeatTick:      heartbeatTick,
+		Storage:            ms,
+		MaxSizePerMsg:      4096, // library README example values; the library
+		MaxInflightMsgs:    256,  // provides no defaults
+		PreVote:            true, // HashiCorp Raft enables pre-vote by default
+		AsyncStorageWrites: true, // decouple storage writes from the Ready loop
 	}
 	node := raft.StartNode(cfg, peers)
 
 	rep := &Replica{
 		myIdx: replicaID,
+		myID:  myID,
 		node:  node,
 		ms:    ms,
 		tr:    tr,
@@ -652,6 +811,12 @@ func main() {
 	}
 	log.Printf("peer transport on :%d, %d peers", *raftPort, len(peers))
 
+	go tr.sender(myID)
+	for id := range peerAddrs {
+		if id != myID {
+			go tr.sender(id)
+		}
+	}
 	go rep.run(w, node)
 
 	rpc.Register(rep)

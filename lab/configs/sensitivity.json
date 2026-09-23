@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "Implementation-sensitivity experiment. This config is separate from",
+    "configs/matrix.json so the primary dataset is never touched: it is run",
+    "with `runner matrix --config configs/sensitivity.json --results-base",
+    "sensitivity`, which writes to results/sensitivity/.",
+    "",
+    "The `defaults` block is a verbatim copy of configs/matrix.json's defaults",
+    "(same CPU/memory allocation, keyspace, timeouts, Raft timeouts, seed, and",
+    "10 repetitions), so the sensitivity runs use the same benchmark",
+    "methodology as the primary runs.",
+    "",
+    "`implementations` lists every implementation evaluated for each protocol:",
+    "  raft   -> hashicorp (primary, Raft A), etcd (go.etcd.io/raft/v3, Raft B)",
+    "  epaxos -> original (primary, EPaxos A), nvb (nvb/epaxos, EPaxos B)",
+    "The first run family is the paper's primary baseline (3 replicas, 100%",
+    "writes, concurrency 32, 20 s measured phase); the second adds the next",
+    "replica count to test the qualitative scaling direction.",
+    "",
+    "The largest replica counts (7, 9) are NOT included: they need ~4.4-5.4 GB",
+    "across containers and this host has ~3 GB free, which would starve them",
+    "relative to the recorded primary runs."
+  ],
+  "defaults": {
+    "protocol": "raft",
+    "replicas": 3,
+    "read_pct": 50,
+    "write_pct": 50,
+    "concurrency": 32,
+    "duration_s": 20,
+    "warmup_s": 3,
+    "repetitions": 10,
+    "failure": {
+      "mode": "none",
+      "at_s": 0,
+      "restart_after_s": 0
+    },
+    "replica_cpus": 2.0,
+    "replica_mem_mb": 512,
+    "client_cpus": 2.0,
+    "client_mem_mb": 512,
+    "master_cpus": 1.0,
+    "master_mem_mb": 256,
+    "keyspace": 1000,
+    "timeout_ms": 2000,
+    "seed": 42,
+    "gomaxprocs": 4,
+    "raft_heartbeat_ms": 1000,
+    "raft_election_ms": 2000,
+    "raft_snapshot_threshold": 8192,
+    "raft_trailing_logs": 1024
+  },
+  "scaling": {
+    "protocols": [
+      "raft",
+      "epaxos"
+    ],
+    "implementations": [
+      "hashicorp",
+      "etcd",
+      "etcd-core",
+      "original",
+      "nvb"
+    ],
+    "replicas": [
+      3,
+      5
+    ],
+    "write_pct": 100,
+    "concurrency": 32
+  }
+}

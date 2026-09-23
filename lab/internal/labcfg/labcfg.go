@@ -100,6 +100,7 @@ type Run struct {
 const (
 	ImplHashicorp = "hashicorp" // Raft primary:    github.com/hashicorp/raft
 	ImplEtcd      = "etcd"      // Raft independent: go.etcd.io/raft/v3
+	ImplEtcdCore  = "etcd-core" // Raft analysis:    go.etcd.io/raft/v3 core only (no WAL, no fsync)
 	ImplOriginal  = "original"  // EPaxos primary:   efficient/epaxos
 	ImplNVB       = "nvb"       // EPaxos independent: github.com/nvanbenschoten/epaxos
 )
@@ -132,7 +133,7 @@ func (r Run) IsPrimary() bool { return r.Impl() == PrimaryImpl(r.Protocol) }
 func ImplSupported(protocol, impl string) bool {
 	switch protocol {
 	case "raft":
-		return impl == ImplHashicorp || impl == ImplEtcd
+		return impl == ImplHashicorp || impl == ImplEtcd || impl == ImplEtcdCore
 	case "epaxos":
 		return impl == ImplOriginal || impl == ImplNVB
 	}

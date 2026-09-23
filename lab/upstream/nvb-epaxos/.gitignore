@@ -1,0 +1,29 @@
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.o
+*.a
+*.so
+
+# Vendored dependencies: restored with `git clone https://github.com/nvb/epaxos
+# && git -C epaxos checkout 425bd36502ecc810ef7f08943896f957673102bc && cp -r
+# epaxos/vendor <this dir>/vendor` (see UPSTREAM.md). Not part of the source.
+vendor/
+
+# Folders
+_obj
+_test
+
+# Architecture specific extensions/prefixes
+*.[568vq]
+[568vq].out
+
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+
+_testmain.go
+
+*.exe
+*.test
+*.prof

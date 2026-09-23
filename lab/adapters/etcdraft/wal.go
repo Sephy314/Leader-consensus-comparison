@@ -81,20 +81,30 @@ func frame(kind byte, body []byte) []byte {
 	return buf
 }
 
-// append durably writes HardState and Entries. sync mirrors the library's
-// Ready.MustSync: when false the write is buffered by the OS but not forced to
-// stable storage.
-func (w *wal) append(hs *pb.HardState, entries []*pb.Entry, sync bool) error {
-	recs, err := w.records(hs, entries)
-	if err != nil {
-		return err
-	}
-	if len(recs) == 0 {
-		return nil
-	}
+// walItem is one (hard state, entries) pair destined for the WAL.
+type walItem struct {
+	hs      *pb.HardState
+	entries []*pb.Entry
+}
+
+// appendBatch durably writes a batch of hard states and entries in one write
+// and one fsync. This is the group commit the async-storage-writes append
+// thread relies on: N Ready batches cost one fsync instead of N. sync mirrors
+// the library's Ready.MustSync: when false the write is buffered by the OS
+// but not forced to stable storage.
+func (w *wal) appendBatch(items []walItem, sync bool) error {
 	var buf []byte
-	for _, r := range recs {
-		buf = append(buf, r...)
+	for _, it := range items {
+		recs, err := w.records(it.hs, it.entries)
+		if err != nil {
+			return err
+		}
+		for _, r := range recs {
+			buf = append(buf, r...)
+		}
+	}
+	if len(buf) == 0 {
+		return nil
 	}
 	if _, err := w.f.WriteAt(buf, w.off); err != nil {
 		return err

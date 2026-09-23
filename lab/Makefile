@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report check-upstream tidy upstream-hash clean clean-results
 
 help:
 	@echo "targets:"
@@ -32,6 +32,8 @@ help:
 	@echo "  paper-figures   copy publication figures into ../paper/figures/"
 	@echo "  paper-numbers   print every number the paper's Evaluation section cites"
 	@echo "  compare-datasets  pre-audit vs revised dataset methodology-change report"
+	@echo "  sensitivity      run the implementation-sensitivity experiment (4 implementations)"
+	@echo "  sensitivity-report  analyse the sensitivity dataset into a markdown report"
 	@echo "  check-upstream  verify vendored wire protocol matches upstream"
 	@echo "  clean-results   delete results/raw, processed, figures and report"
 
@@ -110,6 +112,20 @@ paper-numbers:
 # Pre-audit vs revised dataset: what the protocol change actually moved.
 compare-datasets:
 	$(PY) report/compare_datasets.py --old results/archive/pre-audit-2026-09-19/processed --new results/processed --out results/methodology-change-report.md
+
+# Implementation sensitivity: an independent implementation of each protocol
+# (etcd Raft beside HashiCorp Raft, nvb/epaxos beside efficient/epaxos). The
+# dataset lives under results/sensitivity/ and never touches the primary one.
+sensitivity: build
+	$(RUNNER) matrix --config configs/sensitivity.json --results-base sensitivity --schedule-seed $(SEED) --skip-existing
+	$(MAKE) sensitivity-report
+
+# Analyse the sensitivity dataset with the primary pipeline's definitions.
+sensitivity-report:
+	$(PY) report/sensitivity.py --raw results/sensitivity/raw \
+		--primary-processed results/processed \
+		--out results/sensitivity/sensitivity-report.md \
+		--json results/sensitivity/sensitivity.json | tee results/sensitivity/paper-numbers.txt
 
 # Copy the publication figures into the paper's figures/ directory so the
 # LaTeX build can include them.

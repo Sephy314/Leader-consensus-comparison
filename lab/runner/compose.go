@@ -207,6 +207,29 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-trailing-logs", itoa(cfg.RaftTrailingLogs),
 			})
 		}
+	case labcfg.ImplEtcdCore:
+		// Raft core-only analysis mode: the same etcd raft core with
+		// in-memory storage only (no write-ahead log, no fsync). This
+		// isolates the core's throughput from the durability path; it is
+		// reported as its own implementation, never as a peer of the
+		// durable ones.
+		m.DataVolumes = false
+		m.MasterCmd = []string{"raftmaster", "-port", "7087", "-n", itoa(cfg.Replicas)}
+		for i := 0; i < cfg.Replicas; i++ {
+			m.ReplicaCmds = append(m.ReplicaCmds, []string{
+				"etcdraftadapter",
+				"-master", "master:7087",
+				"-addr", fmt.Sprintf("replica%d", i),
+				"-client-port", "7070",
+				"-raft-port", "6000",
+				"-dir", "/data",
+				"-no-wal",
+				"-gomaxprocs", itoa(cfg.GOMAXPROCS),
+				"-heartbeat-ms", itoa(cfg.RaftHeartbeatMS),
+				"-election-ms", itoa(cfg.RaftElectionMS),
+				"-trailing-logs", itoa(cfg.RaftTrailingLogs),
+			})
+		}
 	case labcfg.ImplOriginal:
 		m.MasterCmd = []string{"epaxos-master", "-port", "7087", "-N", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
