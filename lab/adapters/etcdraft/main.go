@@ -51,6 +51,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -82,6 +83,8 @@ var (
 	electionMS  = flag.Int("election-ms", 2000, "raft election timeout (ms)")
 	trailingLog = flag.Int("trailing-logs", 1024, "log entries kept after compaction")
 	applyTO     = flag.Duration("apply-timeout", 5*time.Second, "timeout for a proposal to be applied")
+	commCostMS  = flag.Int("comm-cost-ms", 0, "fixed one-way latency (ms) added to every inter-replica message; 0 = local-network baseline")
+	commJitter  = flag.Int("comm-jitter-pct", 0, "jitter as % of comm-cost-ms: each message waits an extra uniform delay in [0, cost*jitter/100]")
 )
 
 // tickInterval is the wall-clock duration of one raft tick. The library counts
@@ -199,6 +202,11 @@ type transport struct {
 	// messages, drained by that peer's sender goroutine. Per-peer ordering
 	// is preserved because each peer has exactly one sender.
 	outbox map[uint64]chan []byte
+
+	// commCostMS / commJitterPct inject a simulated network: every outbound
+	// message waits commCostMS plus a uniform jitter before being written.
+	commCostMS    int
+	commJitterPct int
 
 	isoUntil   atomic.Int64
 	droppedPre atomic.Int64
@@ -318,6 +326,21 @@ func (pc *peerConn) close() {
 // of racing ahead of the network.
 const outboxCap = 1024
 
+// commDelay returns the extra one-way latency for one inter-replica message:
+// the fixed cost plus a uniform jitter in [0, cost*jitter/100]. costMS=0
+// means no added latency (the local-network baseline).
+func commDelay(costMS, jitterPct int) time.Duration {
+	if costMS <= 0 {
+		return 0
+	}
+	base := time.Duration(costMS) * time.Millisecond
+	if jitterPct <= 0 {
+		return base
+	}
+	maxJitter := base * time.Duration(jitterPct) / 100
+	return base + time.Duration(rand.Int63n(int64(maxJitter)+1))
+}
+
 // send marshals each message immediately and enqueues the bytes for the
 // peer's sender goroutine. Marshalling happens here, not in the sender,
 // because the raftpb.Message objects are reused by the library. The queue
@@ -360,6 +383,9 @@ func (t *transport) send(msgs []*pb.Message) {
 // ordering is preserved and the Ready loop never blocks on the network.
 func (t *transport) sender(id uint64) {
 	for frame := range t.outbox[id] {
+		if d := commDelay(t.commCostMS, t.commJitterPct); d > 0 {
+			time.Sleep(d)
+		}
 		if err := t.sendOne(id, frame); err != nil {
 			log.Printf("send to %d: %v", id, err)
 		}
@@ -777,6 +803,8 @@ func main() {
 	}
 
 	tr := newTransport(myID, *raftPort, peerAddrs)
+	tr.commCostMS = *commCostMS
+	tr.commJitterPct = *commJitter
 
 	electionTick, heartbeatTick := ticksFor(*electionMS), ticksFor(*heartbeatMS)
 	if electionTick <= heartbeatTick {

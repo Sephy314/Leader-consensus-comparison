@@ -9,6 +9,7 @@ import (
 	"genericsmrproto"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"rdtsc"
@@ -76,6 +77,14 @@ type Replica struct {
 	// startup burst fill the peers' inbound channels and stall the first
 	// requests.
 	outbox []chan outMsg
+
+	// CommCostMS / CommJitterPct inject a simulated network: every outbound
+	// message waits CommCostMS plus a uniform jitter before being written.
+	// Set by the server binary after NewReplica returns; the senders only
+	// start sending after ConnectToPeers has dialed every peer, so the
+	// fields are set before the first message is sent.
+	CommCostMS    int
+	CommJitterPct int
 }
 
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool) *Replica {
@@ -103,7 +112,9 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		genericsmrproto.GENERIC_SMR_BEACON_REPLY + 1,
 		make([]float64, len(peerAddrList)),
 		make(chan bool, 100),
-		make([]chan outMsg, len(peerAddrList))}
+		make([]chan outMsg, len(peerAddrList)),
+		0, // CommCostMS: no added latency by default
+		0} // CommJitterPct
 
 	for i := range r.outbox {
 		r.outbox[i] = make(chan outMsg, outboxCap)
@@ -395,9 +406,27 @@ func (r *Replica) enqueue(peerId int32, code uint8, msg fastrpc.Serializable) {
 func (r *Replica) sender(peerId int32) {
 	w := r.PeerWriters[peerId]
 	for om := range r.outbox[peerId] {
+		if d := commDelay(r.CommCostMS, r.CommJitterPct); d > 0 {
+			time.Sleep(d)
+		}
 		w.Write(om.data)
 		w.Flush()
 	}
+}
+
+// commDelay returns the extra one-way latency for one inter-replica message:
+// the fixed cost plus a uniform jitter in [0, cost*jitter/100]. costMS=0
+// means no added latency (the local-network baseline).
+func commDelay(costMS, jitterPct int) time.Duration {
+	if costMS <= 0 {
+		return 0
+	}
+	base := time.Duration(costMS) * time.Millisecond
+	if jitterPct <= 0 {
+		return base
+	}
+	maxJitter := base * time.Duration(jitterPct) / 100
+	return base + time.Duration(rand.Int63n(int64(maxJitter)+1))
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {

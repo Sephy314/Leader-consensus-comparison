@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -54,6 +55,8 @@ var (
 	snapThr     = flag.Int("snapshot-threshold", 8192, "Raft snapshot threshold")
 	trailingLog = flag.Int("trailing-logs", 1024, "Raft trailing logs")
 	applyTO     = flag.Duration("apply-timeout", 5*time.Second, "timeout for raft.Apply")
+	commCostMS  = flag.Int("comm-cost-ms", 0, "fixed one-way latency (ms) added to every inter-replica message; 0 = local-network baseline")
+	commJitter  = flag.Int("comm-jitter-pct", 0, "jitter as % of comm-cost-ms: each message waits an extra uniform delay in [0, cost*jitter/100]")
 )
 
 // fsm is the benchmark application state machine. It is separate from Raft
@@ -226,7 +229,60 @@ type isolatingTransport struct {
 	isolateUntil time.Time
 	droppedPreV  int64 // atomic; RequestPreVote dropped while isolated (primary)
 	droppedV     int64 // atomic; RequestVote dropped while isolated (cross-check)
+
+	// commCostMS / commJitterPct inject a simulated network: every outbound
+	// RPC waits commCostMS plus a uniform jitter before being sent.
+	commCostMS    int
+	commJitterPct int
 }
+
+// commDelay sleeps for the configured one-way latency of one inter-replica
+// message: the fixed cost plus a uniform jitter in [0, cost*jitter/100].
+// costMS=0 means no added latency (the local-network baseline).
+func (t *isolatingTransport) commDelay() {
+	if t.commCostMS <= 0 {
+		return
+	}
+	base := time.Duration(t.commCostMS) * time.Millisecond
+	if t.commJitterPct > 0 {
+		maxJitter := base * time.Duration(t.commJitterPct) / 100
+		base += time.Duration(rand.Int63n(int64(maxJitter) + 1))
+	}
+	time.Sleep(base)
+}
+
+// AppendEntries waits the communication delay before forwarding. This is the
+// leader->follower replication RPC, the hot path of the protocol.
+func (t *isolatingTransport) AppendEntries(id raft.ServerID, target raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
+	t.commDelay()
+	return t.Transport.AppendEntries(id, target, args, resp)
+}
+
+// AppendEntriesPipeline wraps the pipelined append path with the same delay.
+// HashiCorp Raft pipelines appends when MaxRPCsInFlight >= 2 (the default),
+// so without this wrapper the delay would only apply to the non-pipelined
+// fallback.
+func (t *isolatingTransport) AppendEntriesPipeline(id raft.ServerID, target raft.ServerAddress) (raft.AppendPipeline, error) {
+	p, err := t.Transport.AppendEntriesPipeline(id, target)
+	if err != nil {
+		return nil, err
+	}
+	return &latencyPipeline{inner: p, delay: t.commDelay}, nil
+}
+
+// latencyPipeline wraps a raft.AppendPipeline so each pipelined AppendEntries
+// waits the configured communication delay before being sent.
+type latencyPipeline struct {
+	inner raft.AppendPipeline
+	delay func()
+}
+
+func (p *latencyPipeline) AppendEntries(args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) (raft.AppendFuture, error) {
+	p.delay()
+	return p.inner.AppendEntries(args, resp)
+}
+func (p *latencyPipeline) Consumer() <-chan raft.AppendFuture { return p.inner.Consumer() }
+func (p *latencyPipeline) Close() error                       { return p.inner.Close() }
 
 func (t *isolatingTransport) isolateFor(d time.Duration) {
 	t.mu.Lock()
@@ -250,23 +306,27 @@ func (t *isolatingTransport) droppedPreVotes() int64 { return atomic.LoadInt64(&
 func (t *isolatingTransport) droppedVotes() int64    { return atomic.LoadInt64(&t.droppedV) }
 
 // RequestVote drops real vote requests while isolated and counts the drops.
+// Otherwise it waits the communication delay before forwarding.
 func (t *isolatingTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
 	if t.isolated() {
 		atomic.AddInt64(&t.droppedV, 1)
 		return fmt.Errorf("transport isolated: vote request dropped (election-failure injection)")
 	}
+	t.commDelay()
 	return t.Transport.RequestVote(id, target, args, resp)
 }
 
 // RequestPreVote drops pre-vote requests while isolated and counts the drops.
 // Each dropped pre-vote is part of one failed election attempt (the
 // candidate's pre-vote round). Pre-vote is a separate interface
-// (raft.WithPreVote) in HashiCorp Raft v1.7.3.
+// (raft.WithPreVote) in HashiCorp Raft v1.7.3. Otherwise it waits the
+// communication delay before forwarding.
 func (t *isolatingTransport) RequestPreVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestPreVoteRequest, resp *raft.RequestPreVoteResponse) error {
 	if t.isolated() {
 		atomic.AddInt64(&t.droppedPreV, 1)
 		return fmt.Errorf("transport isolated: pre-vote request dropped (election-failure injection)")
 	}
+	t.commDelay()
 	if pv, ok := t.Transport.(raft.WithPreVote); ok {
 		return pv.RequestPreVote(id, target, args, resp)
 	}
@@ -450,6 +510,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("raft setup: %v", err)
 	}
+	iso.commCostMS = *commCostMS
+	iso.commJitterPct = *commJitter
 
 	rep := &Replica{id: replicaID, raft: r, peers: peers, iso: iso}
 	rpc.Register(rep)

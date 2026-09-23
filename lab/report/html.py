@@ -176,19 +176,22 @@ class Dataset:
                 "valid": bool(entry.get("valid")),
                 "reason": entry.get("reason", ""),
                 "protocol": m.get("protocol", meta.get("config", {}).get("protocol", "")),
+                "implementation": m.get("implementation", meta.get("config", {}).get("implementation", "")),
                 "replicas": m.get("replicas", meta.get("config", {}).get("replicas", "")),
                 "read_pct": m.get("read_pct", meta.get("config", {}).get("read_pct", "")),
                 "write_pct": m.get("write_pct", meta.get("config", {}).get("write_pct", "")),
                 "concurrency": m.get("concurrency", meta.get("config", {}).get("concurrency", "")),
                 "conflict_pct": m.get("conflict_pct", 0),
                 "failure_mode": m.get("failure_mode", meta.get("config", {}).get("failure", {}).get("mode", "none")),
+                "comm_cost_ms": m.get("comm_cost_ms", meta.get("config", {}).get("comm_cost_ms", 0)),
+                "comm_jitter_pct": m.get("comm_jitter_pct", meta.get("config", {}).get("comm_jitter_pct", 0)),
                 "throughput": m.get("throughput_req_s"),
                 "p50": m.get("latency_ns_p50"),
                 "p95": m.get("latency_ns_p95"),
                 "success_rate": m.get("success_rate"),
                 "duration_s": meta.get("duration_s"),
                 "started_at": meta.get("started_at", ""),
-                "experiment": meta.get("experiment", ""),
+                "experiment": m.get("experiment") or meta.get("experiment", ""),
             })
         return runs
 
@@ -436,6 +439,37 @@ class Dataset:
                 })
         return rows
 
+    def commcost_table(self):
+        """Per (protocol, implementation, cost_ms, jitter_pct): mean
+        throughput and p50 latency. Restricted to the commcost experiment
+        family. The implementation is part of the key because the commcost
+        matrix runs all four implementations."""
+        rows = []
+        base = [r for r in self.runs if r.get("experiment") == "commcost" and r["valid"]]
+        if not base:
+            return rows
+        def impl_of(r):
+            return r.get("implementation") or ("hashicorp" if r["protocol"] == "raft" else "original")
+
+        keys = sorted({(r["protocol"], impl_of(r), int(r.get("comm_cost_ms", 0)),
+                        int(r.get("comm_jitter_pct", 0))) for r in base})
+        for proto, impl, cost, jitter in keys:
+            runs = [r for r in base
+                    if r["protocol"] == proto and impl_of(r) == impl
+                    and int(r.get("comm_cost_ms", 0)) == cost
+                    and int(r.get("comm_jitter_pct", 0)) == jitter]
+            if not runs:
+                continue
+            tputs = [fnum(r["throughput"]) for r in runs]
+            p50s = [fnum(r["p50"]) for r in runs]
+            rows.append({
+                "protocol": proto, "implementation": impl,
+                "cost_ms": cost, "jitter_pct": jitter, "runs": len(runs),
+                "throughput_mean": statistics.mean(tputs) if tputs else None,
+                "p50_mean": statistics.mean(p50s) if p50s else None,
+            })
+        return rows
+
     def election_table(self):
         """Per MEASURED failed-elections value: availability-gap and
         recovery-from-isolation-end statistics (n, mean, median, SD, 95% CI)
@@ -598,7 +632,8 @@ def render_nav():
     items = [
         ("summary", "Summary"), ("config", "Configuration"), ("workload", "Workload"),
         ("scaling", "Scaling"), ("conflict", "Conflict"), ("concurrency", "Concurrency"),
-        ("election", "Election"), ("read", "Read Semantics"), ("failure", "Failure"),
+        ("commcost", "Comm Cost"), ("election", "Election"), ("read", "Read Semantics"),
+        ("failure", "Failure"),
         ("resources", "Resources"), ("integrity", "Execution Integrity"),
         ("figures", "Figures"), ("runs", "Run Explorer"),
         ("repro", "Reproducibility"), ("limitations", "Limitations"),
@@ -858,6 +893,60 @@ def render_concurrency(ds):
   <code>results/processed/resources.csv</code>. Whether work concentrates on
   a Raft leader is left to the data; the report does not label a bottleneck.</p>
   {table}
+</section>"""
+
+
+def render_commcost(ds):
+    rows = ds.commcost_table()
+    if not rows:
+        return "<section id='commcost'><h2>Communication Cost</h2><p class='note'>No communication-cost data.</p></section>"
+
+    # Cost sweep: jitter = 0, one row per (protocol, implementation, cost).
+    cost_rows = [r for r in rows if r["jitter_pct"] == 0]
+    cost_body = []
+    for r in sorted(cost_rows, key=lambda r: (r["protocol"], r["implementation"], r["cost_ms"])):
+        cost_body.append(f"<tr><td>{esc(r['protocol'])}</td><td>{esc(r['implementation'])}</td>"
+                         f"<td>{r['cost_ms']}</td><td>{r['runs']}</td>"
+                         f"<td>{fmt_num(r['throughput_mean'], 0)}</td><td>{fmt_ms(r['p50_mean'])}</td></tr>")
+    cost_table = ("<table><thead><tr><th>Protocol</th><th>Implementation</th><th>Cost (ms)</th>"
+                  "<th>Runs</th><th>Throughput (req/s, mean)</th><th>p50 (mean)</th>"
+                  "</tr></thead><tbody>" + "".join(cost_body) + "</tbody></table>")
+
+    # Jitter sweep: cost = 5 ms, one row per (protocol, implementation, jitter).
+    jit_rows = [r for r in rows if r["cost_ms"] == 5]
+    jit_body = []
+    for r in sorted(jit_rows, key=lambda r: (r["protocol"], r["implementation"], r["jitter_pct"])):
+        jit_body.append(f"<tr><td>{esc(r['protocol'])}</td><td>{esc(r['implementation'])}</td>"
+                        f"<td>{r['jitter_pct']}%</td><td>{r['runs']}</td>"
+                        f"<td>{fmt_num(r['throughput_mean'], 0)}</td><td>{fmt_ms(r['p50_mean'])}</td></tr>")
+    jit_table = ("<table><thead><tr><th>Protocol</th><th>Implementation</th><th>Jitter</th>"
+                 "<th>Runs</th><th>Throughput (req/s, mean)</th><th>p50 (mean)</th>"
+                 "</tr></thead><tbody>" + "".join(jit_body) + "</tbody></table>")
+
+    # Figures from results/figures/commcost/.
+    parts = []
+    cc_figs = ds.figure_categories.get("commcost", [])
+    if cc_figs:
+        parts.append("<h3>Figures</h3>")
+        grid = []
+        for f in cc_figs:
+            grid.append(f'<div class="fig-card"><img src="../figures/commcost/{esc(f)}" alt="{esc(f)}">'
+                        f'<div class="cap">{esc(f)}</div></div>')
+        parts.append(f'<div class="fig-grid">{"".join(grid)}</div>')
+
+    return f"""
+<section id="commcost">
+  <h2>Communication Cost</h2>
+  <p class="note">A fixed one-way latency (cost) plus jitter is added to every
+  inter-replica message, simulating a real network instead of the local
+  loopback. Jitter is a percentage of the cost: each message waits
+  cost + U(0, cost*jitter/100). The cost sweep is measured at jitter 0; the
+  jitter sweep is measured at a 5 ms cost.</p>
+  <h3>Cost sweep (jitter 0)</h3>
+  {cost_table}
+  <h3>Jitter sweep (cost 5 ms)</h3>
+  {jit_table}
+  {''.join(parts)}
 </section>"""
 
 
@@ -1335,6 +1424,7 @@ def render_page(ds):
         render_scaling(ds),
         render_conflict(ds),
         render_concurrency(ds),
+        render_commcost(ds),
         render_election(ds),
         render_read_semantics(ds),
         render_failure(ds),

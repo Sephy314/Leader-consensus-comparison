@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Communication-cost experiment: add a fixed one-way latency (and, at one",
+    "cost level, jitter) to every inter-replica message, simulating a real",
+    "network instead of the local loopback the rest of the benchmark uses.",
+    "",
+    "cost_ms: 0 (baseline), 1, 3, 5, 10. jitter_pct is a percentage of the",
+    "cost: each message waits cost + U(0, cost*jitter/100). Jitter is only",
+    "evaluated at cost=5 (0/5/10/50/100%) to keep the matrix small.",
+    "",
+    "Run with: runner matrix --config configs/commcost.json --results-base",
+    "commcost (writes to results/commcost/). 9 points x 4 implementations x",
+    "10 repetitions = 360 runs at r3."
+  ],
+  "defaults": {
+    "protocol": "raft",
+    "replicas": 3,
+    "read_pct": 50,
+    "write_pct": 50,
+    "concurrency": 32,
+    "duration_s": 20,
+    "warmup_s": 3,
+    "repetitions": 10,
+    "failure": {"mode": "none", "at_s": 0, "restart_after_s": 0},
+    "replica_cpus": 2.0,
+    "replica_mem_mb": 512,
+    "client_cpus": 2.0,
+    "client_mem_mb": 512,
+    "master_cpus": 1.0,
+    "master_mem_mb": 256,
+    "keyspace": 1000,
+    "timeout_ms": 2000,
+    "seed": 42,
+    "gomaxprocs": 4,
+    "raft_heartbeat_ms": 1000,
+    "raft_election_ms": 2000,
+    "raft_snapshot_threshold": 8192,
+    "raft_trailing_logs": 1024
+  },
+  "commcost": {
+    "protocols": ["raft", "epaxos"],
+    "implementations": ["hashicorp", "etcd", "original", "nvb"],
+    "replicas": [3],
+    "write_pct": 100,
+    "concurrency": 32,
+    "points": [
+      {"cost_ms": 0, "jitter_pct": 0},
+      {"cost_ms": 1, "jitter_pct": 0},
+      {"cost_ms": 3, "jitter_pct": 0},
+      {"cost_ms": 5, "jitter_pct": 0},
+      {"cost_ms": 5, "jitter_pct": 5},
+      {"cost_ms": 5, "jitter_pct": 10},
+      {"cost_ms": 5, "jitter_pct": 50},
+      {"cost_ms": 5, "jitter_pct": 100},
+      {"cost_ms": 10, "jitter_pct": 0}
+    ]
+  }
+}

@@ -285,6 +285,7 @@ def process_run(run_dir, run_id, series):
         "run_id": run_id,
         "experiment": meta.get("experiment", ""),
         "protocol": cfg["protocol"],
+        "implementation": cfg.get("implementation", ""),
         "replicas": cfg["replicas"],
         "read_pct": cfg["read_pct"],
         "write_pct": cfg["write_pct"],
@@ -292,6 +293,8 @@ def process_run(run_dir, run_id, series):
         "conflict_pct": cfg.get("conflict_pct", 0),
         "failure_mode": cfg["failure"]["mode"],
         "failed_elections_target": cfg.get("failure", {}).get("failed_elections", 0),
+        "comm_cost_ms": cfg.get("comm_cost_ms", 0),
+        "comm_jitter_pct": cfg.get("comm_jitter_pct", 0),
         "measured_elections": measured_elections(run_dir, cfg.get("replicas", 3)),
         "status": "success",
         "requests_total": total,
@@ -518,9 +521,11 @@ def config_key(m):
     concurrency values, and grouping on those alone silently merges four
     different experiments into one aggregate.
     """
-    return (m.get("experiment", ""), m["protocol"], m["replicas"], m["read_pct"],
+    return (m.get("experiment", ""), m["protocol"], m.get("implementation", ""),
+            m["replicas"], m["read_pct"],
             m["write_pct"], m["concurrency"], m["conflict_pct"], m["failure_mode"],
-            m.get("failed_elections_target", 0))
+            m.get("failed_elections_target", 0), m.get("comm_cost_ms", 0),
+            m.get("comm_jitter_pct", 0))
 
 
 def summarize_configs(all_metrics):
@@ -541,7 +546,7 @@ def summarize_configs(all_metrics):
 
     out = []
     for key, runs in sorted(groups.items()):
-        exp, proto, replicas, rp, wp, conc, conflict, fmode, ftarget = key
+        exp, proto, impl, replicas, rp, wp, conc, conflict, fmode, ftarget, cost, jitter = key
         tputs = [m["throughput_req_s"] for m in runs if m["throughput_req_s"] is not None]
         p50s = [m["latency_ns_p50"] for m in runs if m["latency_ns_p50"] is not None]
         p95s = [m["latency_ns_p95"] for m in runs if m["latency_ns_p95"] is not None]
@@ -564,9 +569,11 @@ def summarize_configs(all_metrics):
 
         row = {
             "experiment": exp,
-            "protocol": proto, "replicas": replicas, "read_pct": rp,
+            "protocol": proto, "implementation": impl,
+            "replicas": replicas, "read_pct": rp,
             "write_pct": wp, "concurrency": conc, "conflict_pct": conflict,
             "failure_mode": fmode, "failed_elections_target": ftarget,
+            "comm_cost_ms": cost, "comm_jitter_pct": jitter,
             "n_observed": observed[key],
             "n_excluded": observed[key] - len(runs),
             "throughput": stat(tputs),

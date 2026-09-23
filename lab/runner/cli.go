@@ -46,14 +46,15 @@ type MatrixSpec struct {
 	Concurrency *ConcSpec      `json:"concurrency"`
 	Failure     *FailureMatrix `json:"failure"`
 	Election    *ElectionSpec  `json:"election"`
+	CommCost    *CommCostSpec  `json:"commcost"`
 }
 
 type WorkloadSpec struct {
 	ReadPcts        []int    `json:"read_pcts"`
-	Concurrencies    []int    `json:"concurrencies"`
-	Protocols        []string `json:"protocols"`
-	Implementations  []string `json:"implementations"` // optional; empty = each protocol's primary implementation
-	Replicas         int      `json:"replicas"`
+	Concurrencies   []int    `json:"concurrencies"`
+	Protocols       []string `json:"protocols"`
+	Implementations []string `json:"implementations"` // optional; empty = each protocol's primary implementation
+	Replicas        int      `json:"replicas"`
 }
 
 type ScalingSpec struct {
@@ -98,6 +99,26 @@ type ElectionSpec struct {
 	AtS             float64 `json:"at_s"`
 	DurationS       int     `json:"duration_s"`
 	FailedElections []int   `json:"failed_elections"`
+}
+
+// CommCostSpec is the communication-cost experiment: vary the fixed one-way
+// latency added to every inter-replica message, and (at one cost level) the
+// jitter around it. This simulates a real network instead of the local
+// loopback the rest of the benchmark uses.
+type CommCostSpec struct {
+	Protocols       []string        `json:"protocols"`
+	Implementations []string        `json:"implementations"` // optional; empty = each protocol's primary implementation
+	Replicas        []int           `json:"replicas"`
+	WritePct        int             `json:"write_pct"`
+	Concurrency     int             `json:"concurrency"`
+	Points          []CommCostPoint `json:"points"`
+}
+
+// CommCostPoint is one (cost, jitter) combination. Jitter is a percentage of
+// the cost: each message waits cost + U(0, cost*jitter/100).
+type CommCostPoint struct {
+	CostMS    int `json:"cost_ms"`
+	JitterPct int `json:"jitter_pct"`
 }
 
 type FailureCase struct {
@@ -262,6 +283,28 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 				FailedElections: n,
 			}
 			out = append(out, cfg)
+		}
+	}
+	if spec.CommCost != nil && (only == "" || only == "commcost") {
+		for _, proto := range spec.CommCost.Protocols {
+			for _, impl := range implementationsFor(proto, spec.CommCost.Implementations) {
+				for _, n := range spec.CommCost.Replicas {
+					for _, pt := range spec.CommCost.Points {
+						cfg := base
+						cfg.Experiment = "commcost"
+						cfg.Protocol = proto
+						cfg.Implementation = impl
+						cfg.Replicas = n
+						cfg.WritePct = spec.CommCost.WritePct
+						cfg.ReadPct = 100 - spec.CommCost.WritePct
+						cfg.Concurrency = spec.CommCost.Concurrency
+						cfg.CommCostMS = pt.CostMS
+						cfg.CommJitterPct = pt.JitterPct
+						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+						out = append(out, cfg)
+					}
+				}
+			}
 		}
 	}
 	return out

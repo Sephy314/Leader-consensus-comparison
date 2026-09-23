@@ -92,6 +92,14 @@ type Run struct {
 	RaftElectionMS   int `json:"raft_election_ms"`
 	RaftSnapshotThr  int `json:"raft_snapshot_threshold"`
 	RaftTrailingLogs int `json:"raft_trailing_logs"`
+
+	// CommCostMS is the fixed one-way latency (ms) added to every
+	// inter-replica message, simulating a real network. 0 = the local-network
+	// baseline (no added latency).
+	CommCostMS int `json:"comm_cost_ms"`
+	// CommJitterPct is the jitter as a percentage of CommCostMS: each message
+	// additionally waits a uniform random delay in [0, cost*jitter/100].
+	CommJitterPct int `json:"comm_jitter_pct"`
 }
 
 // Implementation names. The two primary names are the implementations the

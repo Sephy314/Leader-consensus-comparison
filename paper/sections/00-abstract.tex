@@ -4,7 +4,7 @@ replicated writes at a single elected leader, whereas leaderless protocols
 such as EPaxos distribute ordering across replicas. This paper measures what
 that difference costs in practice. Both protocols are evaluated under one
 benchmark methodology: the same workload generator, identical CPU and memory
-allocations, the same failure injection, and the same metrics, across six
+allocations, the same failure injection, and the same metrics, across seven
 experiment families with ten independent repetitions each and replica counts
 from three to nine, on a single containerised host. EPaxos sustained a higher
 mean throughput than Raft at every replica count tested (1.29$\times$ to

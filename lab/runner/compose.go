@@ -262,6 +262,16 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 			})
 		}
 	}
+	// Communication cost and jitter are injected in the adapters' send path
+	// (a per-message delay before the write). The flags are identical across
+	// implementations, so they are appended here rather than in each case.
+	if cfg.CommCostMS > 0 || cfg.CommJitterPct > 0 {
+		for i := range m.ReplicaCmds {
+			m.ReplicaCmds[i] = append(m.ReplicaCmds[i],
+				"-comm-cost-ms", itoa(cfg.CommCostMS),
+				"-comm-jitter-pct", itoa(cfg.CommJitterPct))
+		}
+	}
 	m.ClientCmd = []string{
 		"client",
 		"-maddr", "master",

@@ -278,6 +278,10 @@ func runIDFor(cfg labcfg.Run, rep int) string {
 		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
 	case "pernode":
 		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
+	case "commcost":
+		// The communication cost and jitter are part of the run ID so the
+		// cost levels never collide.
+		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-x%d-j%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, cfg.CommCostMS, cfg.CommJitterPct, rep)
 	default:
 		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
 	}

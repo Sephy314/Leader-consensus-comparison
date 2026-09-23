@@ -259,6 +259,62 @@ def scaling_figures(metrics, outdir):
         save(fig, os.path.join(outdir, "scaling", f"{fname}.png"))
 
 
+def commcost_figures(metrics, outdir):
+    """Throughput and p50 latency vs one-way communication cost, per
+    protocol and implementation. Only the jitter=0 points are plotted so the
+    x axis is the cost; the jitter sweep is a separate figure."""
+    rows = [m for m in metrics if m["experiment"] == "commcost" and m["failure_mode"] == "none"]
+    rows = select_included(rows)
+    if not rows:
+        return
+
+    def impl_of(m):
+        return m.get("implementation") or ("hashicorp" if m["protocol"] == "raft" else "original")
+
+    for metric, ylabel, fname in (
+        ("throughput_req_s", "throughput (req/s)", "throughput"),
+        ("latency_ns_p50", "latency p50 (ms)", "latency-p50"),
+    ):
+        fig, ax = plt.subplots()
+        for proto in sorted({m["protocol"] for m in rows}):
+            for impl in sorted({impl_of(m) for m in rows if m["protocol"] == proto}):
+                pts = sorted(
+                    ((int(m.get("comm_cost_ms", 0)), fnum(m[metric]))
+                     for m in rows if m["protocol"] == proto and impl_of(m) == impl
+                     and int(m.get("comm_jitter_pct", 0)) == 0),
+                    key=lambda kv: kv[0],
+                )
+                pts = [(c, v / 1e6 if "latency" in metric else v) for c, v in pts if v is not None]
+                if pts:
+                    ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o",
+                            label=f"{proto}/{impl}")
+        ax.set_xlabel("one-way communication cost (ms)")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"{fname} vs communication cost — 3 replicas, 100% write, c32")
+        ax.legend(fontsize=8)
+        save(fig, os.path.join(outdir, "commcost", f"{fname}.png"))
+
+    # Jitter sweep at cost=5: throughput vs jitter percentage.
+    fig, ax = plt.subplots()
+    for proto in sorted({m["protocol"] for m in rows}):
+        for impl in sorted({impl_of(m) for m in rows if m["protocol"] == proto}):
+            pts = sorted(
+                ((int(m.get("comm_jitter_pct", 0)), fnum(m["throughput_req_s"]))
+                 for m in rows if m["protocol"] == proto and impl_of(m) == impl
+                 and int(m.get("comm_cost_ms", 0)) == 5),
+                key=lambda kv: kv[0],
+            )
+            pts = [(j, v) for j, v in pts if v is not None]
+            if pts:
+                ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o",
+                        label=f"{proto}/{impl}")
+    ax.set_xlabel("jitter (% of 5 ms cost)")
+    ax.set_ylabel("throughput (req/s)")
+    ax.set_title("throughput vs jitter — 5 ms cost, 3 replicas, 100% write, c32")
+    ax.legend(fontsize=8)
+    save(fig, os.path.join(outdir, "commcost", "throughput-jitter.png"))
+
+
 def resource_figures(resources, outdir):
     """Per-replica CPU and network distribution."""
     if not resources:
@@ -730,6 +786,7 @@ def main():
     print("generating report figures from processed data ...")
     workload_figures(metrics, args.figures)
     scaling_figures(metrics, args.figures)
+    commcost_figures(metrics, args.figures)
     resource_figures(resources, args.figures)
     failure_figures(failures, args.processed, args.figures)
 

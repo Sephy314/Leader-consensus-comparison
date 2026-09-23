@@ -55,6 +55,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -81,6 +82,8 @@ var (
 	myAddr     = flag.String("addr", "", "advertised address of this replica (container hostname)")
 	gomaxprocs = flag.Int("p", 4, "GOMAXPROCS")
 	applyTO    = flag.Duration("apply-timeout", 5*time.Second, "timeout for a proposed command to be executed")
+	commCostMS = flag.Int("comm-cost-ms", 0, "fixed one-way latency (ms) added to every inter-replica message; 0 = local-network baseline")
+	commJitter = flag.Int("comm-jitter-pct", 0, "jitter as % of comm-cost-ms: each message waits an extra uniform delay in [0, cost*jitter/100]")
 )
 
 // tickInterval is the wall-clock duration of one library tick. The library's
@@ -160,6 +163,11 @@ type server struct {
 	outMu   sync.Mutex
 	outbox  []epaxospb.Message
 	outWake chan struct{}
+
+	// commCostMS / commJitterPct inject a simulated network: every outbound
+	// message waits commCostMS plus a uniform jitter before being sent.
+	commCostMS    int
+	commJitterPct int
 }
 
 // Ping, BeTheLeader, LeaderId and Stats form the admin RPC surface the runner
@@ -263,9 +271,27 @@ func (s *server) sender(ctx context.Context) {
 			batch := s.outbox
 			s.outbox = nil
 			s.outMu.Unlock()
+			if d := commDelay(s.commCostMS, s.commJitterPct); d > 0 {
+				time.Sleep(d)
+			}
 			s.sendBatch(ctx, batch)
 		}
 	}
+}
+
+// commDelay returns the extra one-way latency for one inter-replica message:
+// the fixed cost plus a uniform jitter in [0, cost*jitter/100]. costMS=0
+// means no added latency (the local-network baseline).
+func commDelay(costMS, jitterPct int) time.Duration {
+	if costMS <= 0 {
+		return 0
+	}
+	base := time.Duration(costMS) * time.Millisecond
+	if jitterPct <= 0 {
+		return base
+	}
+	maxJitter := base * time.Duration(jitterPct) / 100
+	return base + time.Duration(rand.Int63n(int64(maxJitter)+1))
 }
 
 func (s *server) sendBatch(ctx context.Context, msgs []epaxospb.Message) {
@@ -461,6 +487,8 @@ func main() {
 		peerAddrs: make(map[epaxospb.ReplicaID]string, len(nodeList)),
 		outWake:   make(chan struct{}, 1),
 	}
+	s.commCostMS = *commCostMS
+	s.commJitterPct = *commJitter
 	nodes := make([]epaxospb.ReplicaID, len(nodeList))
 	for i, ap := range nodeList {
 		host := strings.Split(ap, ":")[0]
