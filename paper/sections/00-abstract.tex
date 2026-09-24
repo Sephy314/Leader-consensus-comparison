@@ -20,8 +20,21 @@ alone: losing the Raft leader cost seconds of write availability and thousands
 of failed requests, whereas losing a Raft follower or an EPaxos replica cost
 tens of milliseconds. The write-ratio and conflict-ratio sweeps showed no
 systematic trend for either protocol, and EPaxos used about 1.8$\times$ the
-peak memory of Raft in the evaluated implementation. The two protocols are
-represented by different implementations and were measured on a single local
-host, so these results should not be read as universal properties of either
-protocol.
+peak memory of Raft in the evaluated implementation.
+
+To separate protocol-level behaviour from implementation choices, each
+protocol is also evaluated through a second, independent implementation
+(etcd Raft beside HashiCorp Raft, nvb EPaxos beside the original EPaxos).
+The four implementations differed sharply in their sensitivity to added
+one-way communication cost: at 10\,ms, throughput fell by 72--96\,\% across
+the implementations, and the etcd Raft implementation collapsed by 94\,\%
+at 1\,ms already, so absolute performance is a property of the
+implementation stack, not of the consensus algorithm alone. A separate
+correctness harness verifies, independently of the performance benchmark,
+that every implementation performs consistent consensus execution: all 18
+deterministic tests (concurrency 1/8/32 plus leader, follower, and replica
+failures) passed, with no missing or duplicate application and agreement
+among surviving replicas. The two protocols are represented by different
+implementations and were measured on a single local host, so these results
+should not be read as universal properties of either protocol.
 \end{abstract}
