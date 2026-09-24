@@ -118,15 +118,16 @@ possible ordering violation.
 
 \subsection{Statistical Conclusion Validity}
 
-Each configuration is measured ten times, and aggregates are reported as means
-with sample standard deviation and a $t$-based 95\,\% confidence interval. Ten
-repetitions leave substantial uncertainty for a variable system: measuring the
-same nominal configuration in four steady-state experiment families produced
-means that differed by up to 21\,\% for Raft and 8\,\% for EPaxos, while
-confidence intervals overlap in several comparisons whose means differ, such
-as at seven and nine replicas. We therefore interpret differences in the
-context of observed run-to-run variability and treat overlapping comparisons
-as inconclusive rather than as evidence of a small but established effect.
+Each configuration is measured ten times, and aggregates are reported as
+medians with non-parametric bootstrap 95\,\% confidence intervals. Ten
+repetitions leave substantial uncertainty for a variable system: measuring
+the same nominal configuration in four steady-state experiment families
+produced medians that differed by 2--3\,\% for both protocols, while the
+bootstrap intervals overlap in several comparisons whose medians differ,
+such as at seven and nine replicas. We therefore interpret differences in
+the context of observed run-to-run variability and treat overlapping
+comparisons as inconclusive rather than as evidence of a small but
+established effect.
 
 The experiment suite contains many configurations and pairwise comparisons
 without a global multiplicity correction. An isolated statistically detectable

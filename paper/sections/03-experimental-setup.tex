@@ -317,11 +317,15 @@ original observation remains in the raw dataset. Excluded and replacement
 runs are reported in the accompanying execution-integrity record.
 
 All aggregates are computed from raw per-run observations. Each configuration
-is evaluated using ten independent repetitions. Throughput and other scalar
-metrics are summarised using the sample mean, sample standard deviation, and
-95\,\% confidence interval based on Student's $t$ distribution. Latency is
-reported using p50, p95, and p99 quantiles. Individual repetition values are
-retained and plotted where applicable.
+is evaluated using ten independent repetitions. Because a small number of
+repetitions stalled (Section~\ref{sec:evaluation}), throughput and latency
+are summarised by the median of the per-repetition values, with 95\,\%
+confidence intervals obtained by non-parametric bootstrap (10{,}000
+resamples). Protocol differences are tested with the exact Mann-Whitney
+$U$ test, and workload-trend hypotheses with the Kruskal-Wallis test; no
+multiplicity correction is applied across the many configurations. Latency
+is reported using p50, p95, and p99 quantiles. Individual repetition values
+are retained and plotted where applicable.
 
 The election experiment is treated as a Raft-specific recovery
 characterisation rather than as a direct protocol-family comparison. Its

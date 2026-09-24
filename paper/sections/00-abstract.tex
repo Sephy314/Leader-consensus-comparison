@@ -14,13 +14,18 @@ Raft at three and five replicas (ratios 1.22 and 1.73, exact Mann-Whitney
 $p<0.001$), but the difference was not significant at seven or nine replicas
 (ratios 1.18 and 0.99, $p=0.12$ and $p=0.32$). Eight of 1{,}302 repetitions
 stalled (two Raft, six EPaxos), so we report medians, which are robust to
-these stalls, rather than means. Median latency was flat for EPaxos
-(5.4--5.6\,ms) across replica counts while Raft grew from 6.9 to 14.6\,ms.
-Client concurrency produced a larger separation at high concurrency: at
-concurrency 256, EPaxos measured 41{,}077\,req/s against 19{,}333\,req/s for
-Raft, with p50 latency 5.6\,ms against 12.1\,ms. The read/write-ratio and
-conflict-ratio experiments showed no clear systematic throughput trend, and
-EPaxos used approximately 1.8$\times$ the peak memory of Raft.
+these stalls, rather than means. The EPaxos throughput decline at seven and
+nine replicas is associated with request timeouts: every EPaxos run at those
+sizes except one had requests time out at the 2{,}000\,ms client timeout,
+each occupying a client worker for the full 2\,s, while the successful
+requests themselves completed in 5.4--5.6\,ms, the same as at three replicas.
+Median latency was flat for EPaxos (5.4--5.6\,ms) across replica counts
+while Raft grew from 6.9 to 14.6\,ms. Client concurrency produced a larger
+separation at high concurrency: at concurrency 256, EPaxos measured
+41{,}077\,req/s against 19{,}333\,req/s for Raft, with p50 latency 5.6\,ms
+against 12.1\,ms. The read/write-ratio and conflict-ratio experiments showed
+no clear systematic throughput trend, and EPaxos used approximately
+1.8$\times$ the peak memory of Raft.
 
 Failure experiments revealed a more specific distinction in request-path
 dependence. Losing the Raft leader produced availability gaps of

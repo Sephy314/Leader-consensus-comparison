@@ -152,12 +152,17 @@ def _series(rows, x_key, val_fn):
 
 
 def _plot_series(ax, groups, xlabel, ylabel, logx=False, xticks=None):
-    """Mean line plus per-repetition points for each protocol."""
+    """Median line plus per-repetition points for each protocol.
+
+    The line is the median of the per-repetition values, matching the
+    reported headline numbers: a small number of stalled repetitions would
+    otherwise pull the mean line below the healthy runs.
+    """
     protos = [p for p in ("raft", "epaxos") if p in groups]
     for p in protos:
         xs = sorted(groups[p])
-        means = [statistics.mean(groups[p][x]) for x in xs]
-        ax.plot(xs, means, marker=MARKERS[p], color=COLORS[p],
+        meds = [statistics.median(groups[p][x]) for x in xs]
+        ax.plot(xs, meds, marker=MARKERS[p], color=COLORS[p],
                 label=PROTO_LABELS[p], linestyle="-")
         for x, vals in zip(xs, (groups[p][x] for x in xs)):
             ax.scatter([x] * len(vals), vals, color=COLORS[p], s=10,
