@@ -123,6 +123,16 @@ evaluated EPaxos implementation under this workload. The non-monotonic
 nine-replica Raft result also indicates that the relationship is not simply
 a linear function of replica count.
 
+The p50 values should be read together with the tail. The p99 was 42.0\,ms
+for Raft and 21.2\,ms for EPaxos at three replicas, and grew to 64--74\,ms
+for Raft at seven to nine replicas. For EPaxos, the p99 at seven and nine
+replicas (221.9 and 213.7\,ms) is dominated by a single repetition that
+completed only 338 requests in the 20\,s phase (against 27{,}000--115{,}000
+for the other repetitions) without a host-telemetry anomaly; excluding that
+repetition, the EPaxos p99 at those sizes is 14--28\,ms. The tail is
+therefore not a stable property of the EPaxos implementation at these
+cluster sizes, and we do not interpret it as one.
+
 \input{tables/tab-latency}
 
 \begin{figure}[t]
@@ -144,6 +154,23 @@ lower median at concurrency 1, EPaxos had the lower median around the
 baseline concurrency of 32, and the two implementations had similar
 medians at concurrency 256. The results therefore do not support a
 concurrency-independent latency ordering.
+
+As with throughput, the same nominal configuration (three replicas,
+concurrency 32) is measured by several families, and the p50 varies between
+them: Raft measured 12.3\,ms in the scaling family and 7.4\,ms in the
+concurrency family, while EPaxos measured 5.6 and 5.9\,ms. The
+EPaxos/Raft p50 ratio at this configuration is therefore 1.25--2.2 depending
+on the family, and a single family should not be quoted in isolation.
+
+For a closed-loop client, Little's law relates the mean latency to the
+concurrency and throughput ($W = N/X$). The reported p50 is the median, not
+the mean, so it can lie below or above this value. At concurrency 256, the
+EPaxos p50 (14.0\,ms) exceeds $N/X$ (7.5\,ms), which is possible only if the
+latency distribution is left-skewed---most requests wait in the queue while
+a minority complete quickly---and indicates that the median is not a good
+summary of the response-time distribution at high concurrency. We therefore
+report p50, p95, and p99 in the processed dataset and use p50 here only as
+the central-tendency summary.
 
 \begin{figure}[t]
 \centering

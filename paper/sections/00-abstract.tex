@@ -11,16 +11,20 @@ counts from three to nine on a single containerised host.
 
 In the primary implementations, EPaxos achieved higher mean throughput than
 Raft at every tested replica count, with mean ratios ranging from
-1.29$\times$ to 1.75$\times$. However, the relative difference varied with
-cluster size, and confidence intervals overlapped at seven and nine replicas.
-Increasing the replica count reduced throughput for both implementations,
-showing that larger replica sets introduced additional coordination and
-communication costs rather than proportional throughput scaling. Client
-concurrency produced a larger separation at high concurrency, while the
-read/write-ratio and conflict-ratio experiments showed no clear systematic
-throughput trend. Median latency also depended on operating condition, with
-the ordering between implementations changing across the concurrency range.
-Resource measurements showed similar aggregate CPU utilisation but different
+1.29$\times$ to 1.75$\times$. The ratio also varied across experiment
+families that exercise the same nominal configuration: the four steady-state
+families measured EPaxos/Raft ratios of 1.15, 1.25, 1.22, and 1.51, so the
+headline 1.51$\times$ comes from the family in which Raft measured lowest.
+The relative difference varied with cluster size, and confidence intervals
+overlapped at seven and nine replicas. Increasing the replica count reduced
+throughput for both implementations, showing that larger replica sets
+introduced additional coordination and communication costs rather than
+proportional throughput scaling. Client concurrency produced a larger
+separation at high concurrency, while the read/write-ratio and
+conflict-ratio experiments showed no clear systematic throughput trend.
+Median latency also depended on operating condition, with the ordering
+between implementations changing across the concurrency range. Resource
+measurements showed similar aggregate CPU utilisation but different
 distributions across replicas, while EPaxos used approximately 1.8$\times$ the
 peak memory of Raft in the evaluated implementations.
 
@@ -37,12 +41,16 @@ Raft implementations and two EPaxos implementations. Their responses to
 application-level one-way communication delay differed substantially: at
 10\,ms of injected cost, throughput decreased by 72--96\,\% across the
 implementations, while the etcd Raft implementation decreased by 94\,\% at
-1\,ms. These results show that absolute performance and communication
-sensitivity depend substantially on the implementation stack and cannot be
-attributed to consensus structure alone. A separate correctness harness
-performed 18 deterministic state-convergence tests covering concurrency levels
-of 1, 8, and 32 and the tested replica-failure scenarios; all tests passed.
-The results should therefore be interpreted as controlled measurements of the
-evaluated implementations rather than universal properties of Raft or EPaxos.
+1\,ms. The delay also reversed the baseline ordering: at 5\,ms and above,
+HashiCorp Raft sustained higher throughput than either EPaxos implementation
+(2{,}316 vs 1{,}432 and 479\,req/s at 5\,ms), so the leader-based/leaderless
+ranking is not invariant to communication conditions. These results show
+that absolute performance and communication sensitivity depend substantially
+on the implementation stack and cannot be attributed to consensus structure
+alone. A separate correctness harness performed 18 deterministic
+state-convergence tests covering concurrency levels of 1, 8, and 32 and the
+tested replica-failure scenarios; all tests passed. The results should
+therefore be interpreted as controlled measurements of the evaluated
+implementations rather than universal properties of Raft or EPaxos.
 
 \end{abstract}

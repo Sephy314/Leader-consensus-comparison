@@ -92,6 +92,14 @@ The failure experiments identify a second consequence of centralised request pro
 
 The implementation comparison provides the strongest qualification to any direct protocol ranking. The four implementations showed substantially different throughput and latency responses to communication delay, and the zero-delay baseline itself did not preserve a simple leader-based versus leaderless ordering. Implementation choices therefore materially influence the observed results.
 
-The evidence is consequently better interpreted as a measurement of **implementation behaviour under controlled conditions** than as a universal ranking of Raft and EPaxos. The experiments show that centralised leadership creates a specific request-routing and failure dependency in the evaluated Raft configuration, while distributed proposal placement changes how request concurrency and replica failure are exposed to the system. At the same time, persistence, transport, scheduling, and other implementation mechanisms can amplify, reduce, or even reverse observed performance differences.
+The evidence is consequently better interpreted as a measurement of
+\emph{implementation behaviour under controlled conditions} than as a
+universal ranking of Raft and EPaxos. The experiments show that centralised
+leadership creates a specific request-routing and failure dependency in the
+evaluated Raft configuration, while distributed proposal placement changes
+how request concurrency and replica failure are exposed to the system. At the
+same time, persistence, transport, scheduling, and other implementation
+mechanisms can amplify, reduce, or even reverse observed performance
+differences.
 
 Accordingly, the central finding of this study is not that either leader-based or leaderless consensus is intrinsically faster. Instead, the measurements demonstrate that the observed performance relationship depends jointly on consensus structure, implementation, workload, replica count, concurrency, communication conditions, and failure mode. A meaningful comparison therefore requires evaluating both absolute performance and the response of each implementation to controlled changes in its operating conditions.

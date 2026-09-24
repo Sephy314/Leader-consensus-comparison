@@ -4,15 +4,26 @@
 
 \subsection{External Validity}
 
-All replicas run on a single host inside containers over a bridge network, so
-the measurements contain no wide-area latency, no real packet loss, and no
-multi-machine failure domains. The host is a WSL2 environment, which places a
-virtualisation layer between the containers and the underlying hardware.
-Cluster sizes are 3--9, the keyspace is 1{,}000 keys, commands are uniform in
-size, and the measured phase is 20\,s. The results therefore describe short,
-uniform, single-host runs rather than long-lived deployments with skewed access
-patterns, large payloads, heterogeneous hardware, or geographically distributed
-replicas.
+All replicas run on a single host over a bridge network, so the measurements
+contain no wide-area latency, no real packet loss, and no multi-machine
+failure domains. The host is a WSL2 environment with 12 physical cores, which
+places a virtualisation layer between the containers and the underlying
+hardware. Cluster sizes are 3--9, the keyspace is 1{,}000 keys, commands are
+uniform in size, and the measured phase is 20\,s. The results therefore
+describe short, uniform, single-host runs rather than long-lived deployments
+with skewed access patterns, large payloads, heterogeneous hardware, or
+geographically distributed replicas.
+
+The host has 12 cores, but the configured CPU quotas exceed this at the
+larger cluster sizes: nine replicas at 2.0 CPUs each, plus the client and the
+master, request 21 CPUs in total. The scaling experiments at seven and nine
+replicas therefore run with aggregate quotas above the physical core count,
+and the measured throughput decline at those sizes may partly reflect host
+CPU saturation rather than protocol-level scaling cost alone. The
+per-replica CPU measurements in Section~\ref{sec:evaluation} (means of
+16--29\,\% for Raft and 22--23\,\% for EPaxos at nine replicas) are
+consistent with this: the aggregate demand exceeds the available cores, so
+individual replicas cannot all reach their quota.
 
 The benchmark also places multiple replicas, the client, and the control
 processes on the same host. Consequently, processes may compete for host CPU
@@ -48,6 +59,19 @@ implementation choices can substantially affect measured performance.
 Consequently, absolute throughput and latency should be interpreted as
 properties of the evaluated implementations and environment rather than as
 intrinsic properties of the underlying protocols.
+
+Persistence is a particular source of asymmetry between the two protocols.
+Both Raft implementations persist their log (HashiCorp Raft to BoltDB, etcd
+Raft to a write-ahead log with batched fsync), while both EPaxos
+implementations keep state in memory. The Raft adapters also compact their
+logs: HashiCorp Raft snapshots at 8{,}192 entries and keeps 1{,}024 trailing
+logs, and the etcd adapter compacts below the same trailing threshold. At the
+measured throughputs (roughly 2{,}000--4{,}000\,req/s), a snapshot is
+triggered every 2--4\,s, so snapshot and compaction work is part of the
+steady-state Raft path. The latency and throughput differences between Raft
+and EPaxos therefore include the cost of persistence and log maintenance,
+which is a property of the evaluated implementations, not of the consensus
+protocols themselves.
 
 The EPaxos implementation is additionally modified to support the
 dependency-set sizes required by the 7- and 9-replica configurations. These
@@ -114,7 +138,13 @@ measured number of failed election attempts is an outcome of the recovery
 process and is mechanically related to the injected isolation duration.
 Accordingly, the reported correlations characterise associations within the
 observed Raft recovery runs rather than providing causal estimates of the
-effect of an additional failed election.
+effect of an additional failed election. In addition, the 60 election runs
+are grouped by the configured isolation target (five targets, twelve runs
+each), so the observations are not fully independent: runs sharing a target
+share the injection duration, which inflates the effective sample size and
+makes the reported $p$-values optimistic. The correlation should therefore be
+read as a descriptive association, not as a hypothesis test with 60
+independent observations.
 
 The 20\,s measurement window also limits the extent to which the experiments
 characterise long-term steady-state behaviour. The reported results should

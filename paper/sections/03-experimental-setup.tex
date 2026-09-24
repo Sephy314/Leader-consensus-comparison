@@ -27,6 +27,11 @@ no Raft-specific local-read optimisation is enabled.
 
 \subsection{Implementation}
 
+Each protocol is represented by two independent implementations
+(Table~\ref{tab:implementations}). The lab adapters add only orchestration,
+monitoring, and the communication-delay injection described below; they never
+implement or modify consensus logic.
+
 Raft is provided by \texttt{github.com/hashicorp/raft} v1.7.3
 \cite{hashicorpraft} and wrapped in a thin adapter
 (\texttt{lab/adapters/raft/}). The adapter converts benchmark requests into
@@ -35,25 +40,74 @@ resulting future, and returns the resulting response. Leader election, log
 replication, quorum calculation, commitment, term management, and Raft state
 transitions are performed by the HashiCorp Raft library rather than by the
 adapter. Raft replicas use BoltDB-backed persistent state stored in
-per-replica Docker volumes.
+per-replica Docker volumes, with a snapshot threshold of 8{,}192 entries and
+1{,}024 trailing logs.
+
+The second Raft implementation uses \texttt{go.etcd.io/raft} v3.7.0
+\cite{etcdraft}, wrapped in a lab adapter (\texttt{lab/adapters/etcdraft/})
+that follows the library's asynchronous-storage-writes interface: a
+dedicated append thread batches up to 64 log entries into one write-ahead-log
+write with a single fsync, mirroring HashiCorp Raft's group commit. The
+adapter sets \texttt{MaxSizePerMsg}=4{,}096 and
+\texttt{MaxInflightMsgs}=256 (the library provides no defaults), enables
+pre-vote to match HashiCorp Raft, and compacts the log below
+\texttt{applied}~$-$~1{,}024 trailing entries. Raft replicas persist their
+log to a write-ahead log in per-replica Docker volumes.
 
 EPaxos uses the upstream \texttt{efficient/epaxos} server and master
 \cite{moraru2013epaxos}, pinned at commit \texttt{791b115} and executed with
-\texttt{-e -exec -dreply}. The lab adds external orchestration, monitoring,
-and failure injection but does not otherwise modify the protocol
-implementation. EPaxos replica state is maintained in memory under the
-upstream configuration. The upstream implementation fixes the dependency-set
-size at five; the lab extends this field to support up to nine replicas
-through a documented wire-format extension. The extension changes the
-representable dependency-set size but does not alter the protocol phases,
-quorums, or decision rules. The same patched binary is used by all EPaxos
-replicas.
+\texttt{-e -exec -dreply}. EPaxos replica state is maintained in memory under
+the upstream configuration. The upstream implementation fixes the
+dependency-set size at five; the lab extends this field to support up to
+nine replicas through a documented wire-format extension. The extension
+changes the representable dependency-set size but does not alter the
+protocol phases, quorums, or decision rules. The same patched binary is used
+by all EPaxos replicas.
+
+The second EPaxos implementation uses \texttt{nvanbenschoten/epaxos}
+\cite{nvbepaxos}, pinned at commit \texttt{425bd36} and wrapped in a lab
+adapter (\texttt{lab/adapters/nvbepaxos/}) that bridges the library's gRPC
+peer transport to the benchmark's client protocol. EPaxos replica state is
+in-memory in both implementations.
+
+\subsubsection{Communication-delay injection}
+
+The communication-cost family adds a fixed one-way delay to every
+inter-replica message. The injection is implemented in each implementation's
+send path, so it exercises the same message flow as the baseline runs:
+
+\begin{itemize}
+\item \textbf{HashiCorp Raft}: the adapter's transport wrapper
+  (\texttt{isolatingTransport}) sleeps before forwarding
+  \texttt{AppendEntries}, \texttt{AppendEntriesPipeline},
+  \texttt{RequestVote}, and \texttt{RequestPreVote}.
+\item \textbf{etcd Raft}: each per-peer sender goroutine sleeps before
+  writing its message frame.
+\item \textbf{EPaxos (original)}: the upstream \texttt{genericsmr} send
+  path sleeps before writing each outbound message. This is the one place
+  the lab modifies the upstream EPaxos binary beyond orchestration; the
+  change is confined to the send path and does not touch protocol logic.
+\item \textbf{EPaxos (nvb)}: the adapter's per-peer sender goroutine sleeps
+  before each batch.
+\end{itemize}
+
+The delay is applied per message, so an implementation that sends more
+messages per request, or serialises its sends, is affected more strongly.
+In particular, the etcd Raft adapter's per-peer sender sleeps on the
+adapter's critical path: a single slow peer stalls that peer's message
+stream, and because the delay is applied per message rather than per batch,
+the effective serialisation cost grows with the number of messages. The
+communication-cost results in Section~\ref{sec:evaluation} should therefore
+be read as measurements of each implementation's send-path structure under
+added delay, not as a protocol-level latency-sensitivity ranking.
 
 Because the implementations use their native storage and execution
 mechanisms, the measurements evaluate complete implementations rather than
 isolated consensus kernels. Consequently, observed performance differences
 include the effects of implementation mechanisms such as persistence,
 message processing, scheduling, and state-machine execution.
+
+\input{tables/tab-implementations}
 
 \subsection{Client Harness and Workload Model}
 
@@ -174,6 +228,15 @@ replicas, 100\,\% writes, and concurrency 32.
 
 \item \textbf{Concurrency}: concurrency sweep from 1 to 256 at three
 replicas and 100\,\% writes.
+
+The Workload and Concurrency families overlap in their concurrency range
+(1--128). They serve different purposes: the Workload family measures the
+interaction between write ratio and concurrency, so its concurrency range is
+bounded to keep the matrix tractable, while the Concurrency family isolates
+the concurrency dimension at 100\,\% writes and extends it to 256, where the
+throughput difference between the implementations is largest. The overlap
+also provides an additional check on run-to-run variability, since the same
+nominal configurations appear in both families.
 
 \item \textbf{Communication cost}: application-level one-way message-delay
 sweep over 0, 1, 3, 5, and 10\,ms at three replicas, 100\,\% writes, and
