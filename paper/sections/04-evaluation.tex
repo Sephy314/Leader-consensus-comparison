@@ -2,12 +2,12 @@
 
 \label{sec:evaluation}
 
-All reported values are medians over ten independent repetitions unless
-otherwise stated. Unless otherwise specified, results use three replicas,
-100\,\% writes, and client concurrency 32. All figures are generated from
-the processed benchmark data by \texttt{lab/report/figures.py}. Figures
-show medians across repetitions, with individual repetition values overlaid
-where available.
+Unless otherwise stated, reported point estimates are medians over ten
+independent repetitions. Unless otherwise specified, results use three
+replicas, 100\,\% writes, and client concurrency 32. All figures are
+generated from the processed benchmark data by \texttt{lab/report/figures.py}.
+Figures show medians across repetitions, with individual repetition values
+overlaid where available.
 
 \subsection{Throughput and Scalability}
 
@@ -23,7 +23,8 @@ the nine-replica median was 60\,\% lower for EPaxos and 51\,\% lower for
 Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at five,
 1.18 at seven, and 0.99 at nine replicas. Thus, the measured throughput
 difference varied with replica count and disappeared at nine replicas,
-where the EPaxos and Raft medians were statistically indistinguishable.
+where no statistically significant difference was detected between the two
+implementations.
 
 We report medians rather than means because a small number of repetitions
 stalled. Across the entire dataset (1{,}302 runs), eight repetitions
@@ -104,7 +105,7 @@ increase differed between them.
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.85\columnwidth]{figures/throughput-concurrency.pdf}
-\caption{Mean throughput by client concurrency at 3 replicas and
+\caption{Median throughput by client concurrency at 3 replicas and
 100\,\% writes. Points show individual repetitions.}
 \label{fig:throughput-concurrency}
 \end{figure}
@@ -249,12 +250,14 @@ given repetition generally consumed \emph{less} CPU than the followers:
 labelling each run by the leader reported at the start of its measured
 phase, the leader/follower CPU ratio was 0.61--0.64 at three replicas and
 0.73--0.75 at seven and nine replicas (medians over the ten repetitions).
-This is consistent with the HashiCorp Raft request path: the leader sends
-AppendEntries and waits for quorum responses, while the followers receive
-the log, persist it (BoltDB fsync), and apply it to the state machine, so
-the per-request CPU work is spread across the followers. The aggregate
-per-replica means therefore reflect the fraction of repetitions in which
-each replica was leader, but the leader is not the CPU hotspot.
+This pattern is consistent with the request path of the evaluated HashiCorp
+Raft implementation, in which the leader sends AppendEntries and waits for
+quorum responses while followers receive, persist, and apply replicated log
+entries. The present measurements do not isolate the contribution of
+persistence, state-machine application, or communication processing to the
+observed CPU difference. The aggregate per-replica means therefore reflect
+the fraction of repetitions in which each replica was leader, but the
+leader is not the CPU hotspot.
 
 EPaxos per-replica means ranged from 22.4\,\% to 23.0\,\%, with no comparable
 single-replica concentration. These measurements are consistent with a more
@@ -478,11 +481,12 @@ failed-election count and recovery intervals, although the relationship is
 reported descriptively rather than causally.
 
 \item Per-replica CPU utilisation was distributed differently in the
-nine-replica scaling experiment. In Raft, the leader consumed \emph{less}
-CPU than the followers (leader/follower ratio 0.73--0.75), consistent with
-the followers doing the log persistence and apply work, whereas EPaxos
-showed a more even distribution across replicas. These observations do not
-by themselves identify CPU saturation as a throughput bottleneck.
+nine-replica scaling experiment. Across the scaling configurations, the
+measured leader/follower CPU ratio remained below 1.0 in the evaluated
+HashiCorp Raft implementation, indicating that the leader did not form the
+CPU hotspot, whereas EPaxos showed a more even distribution across
+replicas. These observations do not by themselves identify CPU saturation
+as a throughput bottleneck.
 
 \item Communication sensitivity differed substantially across the four
 evaluated implementations. At 10\,ms of application-level one-way delay,
