@@ -6,7 +6,7 @@
 
 \subsubsection{Read/Write Composition}
 
-The read/write-ratio experiment (Figure~\ref{fig:throughput-write-ratio}) did not reveal a systematic monotonic relationship between write ratio and throughput for either implementation. Across the tested range, EPaxos throughput varied between 4{,}926 and 5{,}332\,req/s, while Raft varied between 3{,}382 and 4{,}282\,req/s. These ranges are comparable to the run-to-run variation observed across otherwise identical experiment families, particularly for Raft. Consequently, the experiment does not provide strong evidence that changing the read/write composition alone produces a consistent throughput trend.
+The read/write-ratio experiment (Figure~\ref{fig:throughput-write-ratio}) did not reveal a systematic monotonic relationship between write ratio and throughput for either implementation. Across the tested range, EPaxos throughput varied between 5{,}173 and 5{,}462\,req/s, while Raft varied between 4{,}220 and 4{,}463\,req/s. These ranges are comparable to the run-to-run variation observed across otherwise identical experiment families. Consequently, the experiment does not provide strong evidence that changing the read/write composition alone produces a consistent throughput trend.
 
 An exploratory second-order regression captured some curvature in the measured responses more effectively than a first-order model. However, the fitted curvature should be interpreted descriptively rather than as evidence of a protocol-level effect. The observed variation is relatively small compared with the cross-family variability, and the experiment does not directly measure the internal processing costs associated with reads and writes.
 
@@ -18,9 +18,9 @@ Overall, the read/write experiment indicates that workload composition alone is 
 
 \subsubsection{Replica Scaling}
 
-Increasing the replica count reduced throughput for both protocols (Figure~\ref{fig:throughput-scaling}, Table~\ref{tab:scaling}). At the 3-replica configuration, EPaxos measured 5{,}330\,req/s compared with 3{,}531\,req/s for Raft. At 9 replicas, the corresponding means were 2{,}283 and 1{,}768\,req/s. Thus, increasing the replica count reduced the measured throughput of both implementations rather than providing additional aggregate processing capacity.
+Increasing the replica count reduced throughput for both protocols (Figure~\ref{fig:throughput-scaling}, Table~\ref{tab:scaling}). At the 3-replica configuration, EPaxos measured 5{,}292\,req/s compared with 4{,}351\,req/s for Raft. At 9 replicas, the corresponding medians were 2{,}094 and 2{,}113\,req/s. Thus, increasing the replica count reduced the measured throughput of both implementations rather than providing additional aggregate processing capacity.
 
-The decrease is expected because larger replica sets require additional communication and coordination. The experiment therefore does not support interpreting replica addition as a direct source of throughput scaling for either approach. The relative difference between the implementations also became smaller at the largest tested replica counts: the EPaxos/Raft mean ratio decreased from 1.51 at three replicas to 1.29 at nine replicas, while the confidence intervals overlapped at seven and nine replicas.
+The decrease is expected because larger replica sets require additional communication and coordination. The experiment therefore does not support interpreting replica addition as a direct source of throughput scaling for either approach. The relative difference between the implementations also became smaller at the largest tested replica counts: the EPaxos/Raft median ratio decreased from 1.22 at three replicas to 0.99 at nine replicas, where the difference disappeared.
 
 The Raft configuration has a distinct request-routing structure. Client requests are directed to the elected leader, so increasing the number of followers does not create additional independent request-processing endpoints. Additional replicas increase redundancy and replication capacity, but the normal request path remains centred on one leader.
 
@@ -30,19 +30,19 @@ The scaling experiment consequently shows a common cost of increasing replica co
 
 \subsubsection{Client Concurrency}
 
-Client concurrency produced a larger separation between the evaluated implementations than the read/write-ratio experiment (Figure~\ref{fig:throughput-concurrency}). At concurrency 1, throughput was 257\,req/s for Raft and 174\,req/s for EPaxos. At concurrency 256, the corresponding means were 17{,}845 and 33{,}971\,req/s.
+Client concurrency produced a larger separation between the evaluated implementations than the read/write-ratio experiment (Figure~\ref{fig:throughput-concurrency}). At concurrency 1, throughput was 304\,req/s for Raft and 175\,req/s for EPaxos. At concurrency 256, the corresponding medians were 19{,}333 and 41{,}077\,req/s.
 
 The increase in throughput with concurrency indicates that both implementations had additional processing capacity available at low concurrency. The larger increase observed for EPaxos at high concurrency is consistent with its ability to accept proposals at multiple replicas, whereas the evaluated Raft configuration directs all benchmark requests through the elected leader.
 
 This result should nevertheless be interpreted as an implementation-level observation. The benchmark measures a complete request-processing path, including serialisation, transport, state-machine processing, consensus processing, and scheduling. The experiment does not independently measure which component becomes the limiting resource as concurrency increases.
 
-The latency measurements provide a complementary view. Median latency increased for both implementations at high concurrency, reaching 13.4\,ms for Raft and 14.0\,ms for EPaxos at concurrency 256. Thus, the additional throughput obtained from higher concurrency was accompanied by increased request latency.
+The latency measurements provide a complementary view. Median latency increased for Raft at high concurrency, reaching 12.1\,ms at concurrency 256, while the EPaxos p50 stayed at 5.6\,ms. Thus, the additional throughput obtained from higher concurrency was accompanied by increased request latency for Raft but not for EPaxos.
 
 Taken together, the concurrency results indicate that the difference between centralised and distributed request placement becomes more visible under high offered concurrency in the evaluated implementations. They do not establish that leaderless consensus universally scales better with concurrency, but they identify concurrency as a condition under which the request-placement structure materially affects the measured throughput.
 
 \subsubsection{Conflict Rate}
 
-The conflict-ratio experiment did not reveal a clear monotonic relationship between conflict rate and throughput (Figure~\ref{fig:throughput-conflict-ratio}). Raft means ranged from 3{,}514 to 4{,}425\,req/s, while EPaxos means ranged from 4{,}662 to 5{,}235\,req/s. The variation between neighbouring configurations was comparable to the run-to-run variation within the experiment.
+The conflict-ratio experiment did not reveal a clear monotonic relationship between conflict rate and throughput (Figure~\ref{fig:throughput-conflict-ratio}). Raft medians ranged from 4{,}152 to 4{,}504\,req/s, while EPaxos medians ranged from 5{,}079 to 5{,}392\,req/s. The variation between neighbouring configurations was comparable to the run-to-run variation within the experiment.
 
 These measurements therefore do not support a simple claim that increasing conflict consistently reduces throughput. In particular, the observed values fluctuate across the tested conflict levels rather than following a smooth response curve.
 

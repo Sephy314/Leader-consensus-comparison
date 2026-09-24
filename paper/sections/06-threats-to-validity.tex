@@ -14,16 +14,18 @@ describe short, uniform, single-host runs rather than long-lived deployments
 with skewed access patterns, large payloads, heterogeneous hardware, or
 geographically distributed replicas.
 
-The host has 12 cores, but the configured CPU quotas exceed this at the
-larger cluster sizes: nine replicas at 2.0 CPUs each, plus the client and the
-master, request 21 CPUs in total. The scaling experiments at seven and nine
-replicas therefore run with aggregate quotas above the physical core count,
-and the measured throughput decline at those sizes may partly reflect host
-CPU saturation rather than protocol-level scaling cost alone. The
-per-replica CPU measurements in Section~\ref{sec:evaluation} (means of
-16--29\,\% for Raft and 22--23\,\% for EPaxos at nine replicas) are
-consistent with this: the aggregate demand exceeds the available cores, so
-individual replicas cannot all reach their quota.
+The host has 12 cores, and the configured CPU quotas exceed this at the
+larger cluster sizes: nine replicas at 2.0 CPUs each, plus the client and
+the master, request 21 CPUs in total. The quotas are not evidence of
+saturation, however: the measured host load average stayed at 3.8--5.1
+across the scaling family (against 12 cores), and the per-replica CPU
+measurements in Section~\ref{sec:evaluation} (means of 16--29\,\% for Raft
+and 22--23\,\% for EPaxos at nine replicas) imply roughly 9 $\times$ 0.25
+$\times$ 2 $\approx$ 4--5 cores of actual demand. The host was therefore not
+CPU-saturated, and the throughput decline with replica count is not
+explained by host saturation. The quotas do mean that a single replica can
+burst to 2.0 CPUs, so per-replica CPU readings above 100\,\% of one core are
+possible; the reported per-replica means are well below that.
 
 The benchmark also places multiple replicas, the client, and the control
 processes on the same host. Consequently, processes may compete for host CPU
@@ -139,7 +141,7 @@ process and is mechanically related to the injected isolation duration.
 Accordingly, the reported correlations characterise associations within the
 observed Raft recovery runs rather than providing causal estimates of the
 effect of an additional failed election. In addition, the 60 election runs
-are grouped by the configured isolation target (five targets, twelve runs
+are grouped by the configured isolation target (six targets, ten runs
 each), so the observations are not fully independent: runs sharing a target
 share the injection duration, which inflates the effective sample size and
 makes the reported $p$-values optimistic. The correlation should therefore be

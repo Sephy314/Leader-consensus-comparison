@@ -39,26 +39,30 @@ consensus execution.
 
 ## Headline results
 
-All values are means over ten independent repetitions computed from
-`lab/results/processed/`; the table is the scaling family at 100 % writes and
-concurrency 32. The paper in `paper/` reports the full evaluation.
+All values are medians over ten independent repetitions computed from the raw
+runs in `lab/results/raw/`; the table is the scaling family at 100 % writes
+and concurrency 32. Medians are used because several repetitions of both
+protocols stalled (Raft when the leader's snapshot work delayed its
+heartbeats, EPaxos under persistent request timeouts); the means are lower
+for both protocols at every replica count. The paper in `paper/` reports the
+full evaluation.
 
 | Replicas | Raft (req/s) | EPaxos (req/s) | EPaxos/Raft | Raft p50 (ms) | EPaxos p50 (ms) |
 |---------:|-------------:|---------------:|------------:|--------------:|----------------:|
-| 3 | 3,531 | 5,330 | 1.51× | 12.3 | 5.6 |
-| 5 | 2,841 | 4,969 | 1.75× | 16.8 | 5.6 |
-| 7 | 2,108 | 2,864 | 1.36× | 25.5 | 6.0 |
-| 9 | 1,768 | 2,283 | 1.29× | 22.8 | 6.2 |
+| 3 | 4,351 | 5,292 | 1.22× | 6.9 | 5.6 |
+| 5 | 3,150 | 5,443 | 1.73× | 9.2 | 5.5 |
+| 7 | 2,590 | 3,053 | 1.18× | 12.0 | 5.4 |
+| 9 | 2,113 | 2,094 | 0.99× | 14.6 | 5.5 |
 
 - Throughput fell as replicas were added for **both** protocols (3 → 9
-  replicas: −57 % EPaxos, −50 % Raft), so the scaling penalty is not specific
-  to leader-based ordering. The 95 % intervals of the means are separated at 3
-  and 5 replicas and overlap at 7 and 9.
-- EPaxos recorded the higher mean throughput and the lower median latency at
-  every replica count tested, but not at every concurrency level: at
-  concurrency 1 the Raft mean was 257 req/s against 174 req/s for EPaxos, and
-  the gap in EPaxos's favour grows with load (17,845 vs 33,971 req/s at
-  concurrency 256).
+  replicas: −60 % EPaxos, −51 % Raft), so the scaling penalty is not specific
+  to leader-based ordering. The EPaxos advantage disappeared at 9 replicas
+  (ratio 0.99).
+- EPaxos recorded the higher median throughput at 3, 5, and 7 replicas and
+  the lower median latency at every replica count tested, but not at every
+  concurrency level: at concurrency 1 the Raft median was 304 req/s against
+  175 req/s for EPaxos, and the gap in EPaxos's favour grows with load
+  (19,333 vs 41,077 req/s at concurrency 256, with p50 12.1 vs 5.6 ms).
 - Aggregate per-replica CPU utilisation was similar (35.8 % Raft, 35.0 %
   EPaxos), but its distribution was not: the 9-replica Raft means range from
   16.3 % to 29.4 % because leadership rotates between repetitions, while EPaxos
@@ -71,11 +75,11 @@ concurrency 32. The paper in `paper/` reports the full evaluation.
   failed-election count (r = 0.90); measured from the end of the isolation
   window it is smaller but still present (r = 0.41).
 - The write-ratio (0–100 %) and conflict-ratio (0–100 %) sweeps showed no
-  systematic throughput trend: conflict means span 3,514–4,425 req/s (Raft) and
-  4,662–5,235 req/s (EPaxos).
+  systematic throughput trend: conflict medians span 4,152–4,504 req/s (Raft)
+  and 5,079–5,392 req/s (EPaxos).
 - The same nominal configuration measured in four experiment families differs
-  by up to 21 % (Raft) and 8 % (EPaxos); differences below that band are not
-  read out of a single family.
+  by about 3 % for both protocols once medians are used; the mean-based 21 %
+  Raft band was an artefact of the stalled repetitions.
 - Under added one-way communication cost the four implementations differed
   sharply: at 10 ms, HashiCorp Raft lost 72 % of its throughput, nvb EPaxos
   81 %, the original EPaxos 96 %, and etcd Raft collapsed by 94 % at 1 ms
