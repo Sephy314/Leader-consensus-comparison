@@ -1,4 +1,4 @@
-# The Cost of Centralised Leadership in Distributed Consensus
+# The Effects of Leadership in Distributed Consensus
 
 > An Experimental Comparison of Leader-Based and Leaderless Consensus
 
@@ -109,7 +109,7 @@ universal properties of leader-based or leaderless consensus.
 | Correctness validation | 18/18 tests pass across all 4 implementations; `lab/results/correctness/correctness.json` |
 | Processed measurements | `lab/results/processed/` (per-run metrics, per-configuration summaries, failure and run indexes) |
 | Figures and report | `lab/results/figures/`, `lab/results/report/index.html` |
-| Paper | `paper/release/The-Cost-of-Centralised-Leadership-in-Distributed-Consensus.pdf`; sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
+| Paper | `paper/release/The-Effects-of-Leadership-in-Distributed-Consensus.pdf`; sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
 
 `lab/results/` is generated and is not tracked by git; `make matrix`
 regenerates the dataset, and `make report` regenerates every figure and the

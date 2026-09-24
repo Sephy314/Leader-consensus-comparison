@@ -1,33 +1,30 @@
 \begin{abstract}
+Leader-based and leaderless consensus protocols differ fundamentally in how
+replicas coordinate committed operations. This study experimentally examines
+how the presence of a distinguished leader affects performance scaling and
+failure behaviour, using Raft and EPaxos as representative leader-based and
+leaderless designs. We evaluate throughput and latency across replica count,
+client concurrency, read/write ratio, and workload conflict, and measure
+availability under replica and leader failures. We additionally examine
+implementation sensitivity using multiple implementations of each protocol
+family and controlled persistence and network-delay experiments.
 
-Leader-based consensus protocols such as Raft route write requests through
-an elected leader, whereas leaderless protocols such as EPaxos permit
-proposal initiation at multiple replicas. This paper presents an
-implementation-level comparison of these approaches under a common
-benchmark methodology: the same workload generator, allocations, failure
-injection, and metrics, with ten repetitions across seven experiment
-families and replica counts from three to nine on a single containerised
-host.
+The results show that leadership is associated with distinct scaling and
+failure characteristics. Raft's centralised request path introduces a
+structural limitation as the number of concurrent requests increases,
+whereas EPaxos distributes coordination across replicas. The difference is
+also workload-dependent: read/write composition, concurrency, and replica
+count produce different response curves rather than a single uniform
+performance gap. Leader failure in Raft produces a substantially different
+availability gap from follower failure, while removing an EPaxos replica
+does not impose the same distinguished-leader recovery step. However, the
+magnitude of these differences depends on implementation and persistence
+choices, as well as the local execution environment.
 
-In the primary implementations, EPaxos achieved higher median throughput
-than Raft at three and five replicas (ratios 1.22 and 1.73, exact
-Mann-Whitney $p<0.001$), but no significant difference was detected at
-seven or nine replicas. The EPaxos decline at those sizes is associated
-with request timeouts at the 2{,}000\,ms client timeout, while successful
-requests completed in 5.4--5.6\,ms, the same as at three replicas. Median
-latency was flat for EPaxos across replica counts while Raft grew from 6.9
-to 14.6\,ms, and at concurrency 256 EPaxos measured 41{,}077\,req/s against
-19{,}333\,req/s for Raft. Losing the Raft leader produced availability gaps
-of 1.81--4.74\,s, whereas losing a Raft follower or an EPaxos replica
-produced gaps below 0.1\,s.
-
-Evaluating two Raft and two EPaxos implementations shows that implementation
-choice materially affects performance: under 10\,ms of injected one-way
-delay, throughput fell by 72--96\,\% across implementations, and the etcd
-Raft implementation collapsed by 94\,\% at 1\,ms, reversing the baseline
-ordering. A correctness harness passed 18 deterministic state-convergence
-tests across all implementations. The results are controlled measurements
-of the evaluated implementations, not universal properties of Raft or
-EPaxos.
-
+These results suggest that comparisons between leader-based and leaderless
+consensus should distinguish architectural effects from implementation
+effects. Rather than identifying a universally faster protocol, this study
+characterises how leadership changes performance scaling and failure
+behaviour and identifies the conditions under which those differences are
+observable.
 \end{abstract}

@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this research software, please cite it using the metadata below."
-title: "The Cost of Centralised Leadership in Distributed Consensus: An Experimental Comparison of Leader-Based and Leaderless Consensus"
+title: "The Effects of Leadership in Distributed Consensus: An Experimental Comparison of Leader-Based and Leaderless Consensus"
 type: software
 authors:
   - given-names: Davie
