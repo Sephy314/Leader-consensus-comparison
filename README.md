@@ -8,8 +8,8 @@ Research repository.
 
 > Status: the experiment matrix has been run and processed, the correctness
 > harness passes for all four implementations, and the paper is written from
-> abstract to conclusion. The released PDF lives in `paper/release/`;
-> `paper/` rebuilds it from source.
+> abstract to conclusion (13 pages). The released PDF lives in
+> `paper/release/`; `paper/` rebuilds it from source.
 
 This repository contains a reproducible benchmark infrastructure (the
 **Consensus Lab**) for comparing the write path of two consensus protocols in
@@ -41,11 +41,10 @@ consensus execution.
 
 All values are medians over ten independent repetitions computed from the raw
 runs in `lab/results/raw/`; the table is the scaling family at 100 % writes
-and concurrency 32. Medians are used because several repetitions of both
-protocols stalled (Raft when the leader's snapshot work delayed its
-heartbeats, EPaxos under persistent request timeouts); the means are lower
-for both protocols at every replica count. The paper in `paper/` reports the
-full evaluation.
+and concurrency 32. Medians are used because a small number of repetitions
+stalled (two Raft runs coinciding with elevated host load, six EPaxos runs
+at both low and high load); the means are lower for both protocols at every
+replica count. The paper in `paper/` reports the full evaluation.
 
 | Replicas | Raft (req/s) | EPaxos (req/s) | EPaxos/Raft | Raft p50 (ms) | EPaxos p50 (ms) |
 |---------:|-------------:|---------------:|------------:|--------------:|----------------:|
@@ -64,10 +63,11 @@ full evaluation.
   175 req/s for EPaxos, and the gap in EPaxos's favour grows with load
   (19,333 vs 41,077 req/s at concurrency 256, with p50 12.1 vs 5.6 ms).
 - Aggregate per-replica CPU utilisation was similar (35.8 % Raft, 35.0 %
-  EPaxos), but its distribution was not: the 9-replica Raft means range from
-  16.3 % to 29.4 % because leadership rotates between repetitions, while EPaxos
-  stays flat (22.4–23.0 %). Peak per-replica RSS was ~1.8× higher for EPaxos
-  (46.8 MB vs 26.4 MB).
+  EPaxos), but its distribution was not: in Raft the leader consumed
+  *less* CPU than the followers (leader/follower ratio 0.61–0.75 across the
+  scaling configurations), consistent with the followers doing the log
+  persistence and apply work, while EPaxos stays flat (22.4–23.0 %). Peak
+  per-replica RSS was ~1.8× higher for EPaxos (46.8 MB vs 26.4 MB).
 - Failure cost follows the failed **role**: killing the Raft leader left a
   1.81–4.74 s write-availability gap and 2,169–4,133 failed requests, while
   killing a Raft follower or an EPaxos replica stayed below 0.09 s and 106
@@ -78,8 +78,12 @@ full evaluation.
   systematic throughput trend: conflict medians span 4,152–4,504 req/s (Raft)
   and 5,079–5,392 req/s (EPaxos).
 - The same nominal configuration measured in four experiment families differs
-  by about 3 % for both protocols once medians are used; the mean-based 21 %
+  by about 2–3 % for both protocols once medians are used; the mean-based 21 %
   Raft band was an artefact of the stalled repetitions.
+- EPaxos at seven and nine replicas showed request timeouts (30–250 per run
+  at the 2,000 ms client timeout) that account for its reduced throughput via
+  the closed-loop concurrency accounting; the successful requests themselves
+  completed in 5.4–5.6 ms, the same as at three replicas.
 - Under added one-way communication cost the four implementations differed
   sharply: at 10 ms, HashiCorp Raft lost 72 % of its throughput, nvb EPaxos
   81 %, the original EPaxos 96 %, and etcd Raft collapsed by 94 % at 1 ms
