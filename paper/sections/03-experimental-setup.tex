@@ -25,10 +25,9 @@ local-read optimisation is enabled.
 
 \subsection{Implementation}
 
-Each protocol is represented by two independent implementations
-(Table~\ref{tab:implementations}). The lab adapters add only orchestration,
-monitoring, and the communication-delay injection described below; they
-never implement or modify consensus logic.
+Each protocol is represented by two independent implementations. The lab
+adapters add only orchestration, monitoring, and the communication-delay
+injection described below; they never implement or modify consensus logic.
 
 Raft is provided by \texttt{github.com/hashicorp/raft} v1.7.3
 \cite{hashicorpraft}, wrapped in a thin adapter
@@ -47,7 +46,8 @@ to 64 log entries into one write-ahead-log write with a single fsync,
 mirroring HashiCorp Raft's group commit. The adapter sets
 \texttt{MaxSizePerMsg}=4{,}096 and \texttt{MaxInflightMsgs}=256 (the library
 provides no defaults), enables pre-vote to match HashiCorp Raft, and
-compacts the log below \texttt{applied}~$-$~1{,}024 trailing entries.
+compacts the log below \texttt{applied}~$-$~1{,}024 trailing entries, keeping
+its log in a write-ahead log.
 
 EPaxos uses the upstream \texttt{efficient/epaxos} server and master
 \cite{moraru2013epaxos}, pinned at commit \texttt{791b115} and executed with
@@ -59,7 +59,8 @@ rules. The second EPaxos implementation uses
 \texttt{nvanbenschoten/epaxos}~\cite{nvbepaxos}, pinned at commit
 \texttt{425bd36}, wrapped in a lab adapter
 (\texttt{lab/adapters/nvbepaxos/}) that bridges the library's gRPC peer
-transport to the benchmark's client protocol.
+transport to the benchmark's client protocol. EPaxos state is in-memory in
+both implementations.
 
 \subsubsection{Communication-delay injection}
 
@@ -80,8 +81,6 @@ protocol-level latency-sensitivity ranking.
 Because the implementations use their native storage and execution
 mechanisms, the measurements evaluate complete implementations rather than
 isolated consensus kernels.
-
-\input{tables/tab-implementations}
 
 \subsection{Client Harness and Workload Model}
 

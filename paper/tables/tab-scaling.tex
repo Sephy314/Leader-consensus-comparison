@@ -5,14 +5,16 @@ confidence interval of the median. Medians are used because several
 repetitions stalled (see Section~\ref{sec:evaluation}); the mean is lower
 for both protocols at every replica count.}
 \label{tab:scaling}
-\begin{tabular}{lrrr}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{@{}lrlrlr@{}}
 \toprule
-Replicas & Raft & EPaxos & EPaxos/Raft \\
+Replicas & Raft & \multicolumn{1}{c}{95\,\% CI} & EPaxos & \multicolumn{1}{c}{95\,\% CI} & \shortstack{EPaxos/\\Raft} \\
 \midrule
-3 & 4{,}351 [2{,}612--4{,}468] & 5{,}292 [5{,}118--5{,}581] & 1.22$\times$ \\
-5 & 3{,}150 [2{,}771--3{,}346] & 5{,}443 [4{,}469--5{,}611] & 1.73$\times$ \\
-7 & 2{,}590 [1{,}522--2{,}608] & 3{,}053 [1{,}405--4{,}436] & 1.18$\times$ \\
-9 & 2{,}113 [1{,}450--2{,}160] & 2{,}094 [1{,}386--3{,}074] & 0.99$\times$ \\
+3 & 4{,}351 & [2{,}612--4{,}468] & 5{,}292 & [5{,}118--5{,}581] & 1.22$\times$ \\
+5 & 3{,}150 & [2{,}771--3{,}346] & 5{,}443 & [4{,}469--5{,}611] & 1.73$\times$ \\
+7 & 2{,}590 & [1{,}522--2{,}608] & 3{,}053 & [1{,}405--4{,}436] & 1.18$\times$ \\
+9 & 2{,}113 & [1{,}450--2{,}160] & 2{,}094 & [1{,}386--3{,}074] & 0.99$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}

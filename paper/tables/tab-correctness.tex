@@ -4,14 +4,16 @@ test at 3 replicas, 100\,\% writes. Every replied request was applied exactly
 once on every replica, surviving replicas agreed on the final state, and
 requests issued after each fault were processed normally.}
 \label{tab:correctness}
-\begin{tabular}{lllll}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllll@{}}
 \toprule
 Implementation & Sequential & c=8 & c=32 & Fault \\
 \midrule
-Raft (HashiCorp) & PASS & PASS & PASS & follower/leader PASS \\
-Raft (etcd)      & PASS & PASS & PASS & follower/leader PASS \\
-EPaxos (original)& PASS & PASS & PASS & replica PASS \\
-EPaxos (nvb)     & PASS & PASS & PASS & replica PASS \\
+Raft (HashiCorp) & PASS & PASS & PASS & follower/leader \\
+Raft (etcd)      & PASS & PASS & PASS & follower/leader \\
+EPaxos (original) & PASS & PASS & PASS & replica \\
+EPaxos (nvb)     & PASS & PASS & PASS & replica \\
 \bottomrule
 \end{tabular}
 \end{table}
