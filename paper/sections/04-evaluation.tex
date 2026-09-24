@@ -245,10 +245,16 @@ mean per-replica network rates, aggregated over the evaluated runs.}
 Figure~\ref{fig:per-replica-cpu} examines the distribution of CPU
 utilisation in the nine-replica scaling experiment. Raft per-replica means
 ranged from 16.3\,\% to 29.4\,\%. The replica serving as leader during a
-given repetition generally consumed more CPU than the followers, and
-leadership rotated across repetitions. Consequently, the aggregate
-per-replica means reflect both the role of each replica and the fraction of
-repetitions in which it was leader.
+given repetition generally consumed \emph{less} CPU than the followers:
+labelling each run by the leader reported at the start of its measured
+phase, the leader/follower CPU ratio was 0.61--0.64 at three replicas and
+0.73--0.75 at seven and nine replicas (medians over the ten repetitions).
+This is consistent with the HashiCorp Raft request path: the leader sends
+AppendEntries and waits for quorum responses, while the followers receive
+the log, persist it (BoltDB fsync), and apply it to the state machine, so
+the per-request CPU work is spread across the followers. The aggregate
+per-replica means therefore reflect the fraction of repetitions in which
+each replica was leader, but the leader is not the CPU hotspot.
 
 EPaxos per-replica means ranged from 22.4\,\% to 23.0\,\%, with no comparable
 single-replica concentration. These measurements are consistent with a more
@@ -472,10 +478,11 @@ failed-election count and recovery intervals, although the relationship is
 reported descriptively rather than causally.
 
 \item Per-replica CPU utilisation was distributed differently in the
-nine-replica scaling experiment. Raft showed higher utilisation for the
-replica serving as leader during a repetition, whereas EPaxos showed a more
-even distribution across replicas. These observations do not by themselves
-identify CPU saturation as a throughput bottleneck.
+nine-replica scaling experiment. In Raft, the leader consumed \emph{less}
+CPU than the followers (leader/follower ratio 0.73--0.75), consistent with
+the followers doing the log persistence and apply work, whereas EPaxos
+showed a more even distribution across replicas. These observations do not
+by themselves identify CPU saturation as a throughput bottleneck.
 
 \item Communication sensitivity differed substantially across the four
 evaluated implementations. At 10\,ms of application-level one-way delay,
