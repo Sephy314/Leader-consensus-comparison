@@ -166,6 +166,41 @@ conditions executed in reproducibly randomized blocks).
   10, 50, 100 % of the cost at the 5 ms level), for all four
   implementations.
 
+### Families added after the recorded suite
+
+These three write to their own results subtree and never read or write the
+recorded dataset. Each has a `<family>-dry-run` target that validates the
+configuration and prints the run IDs without running anything. See
+`docs/experiment-design.md` §6a for the full design.
+
+- **Persistence matching** (`make persistence`,
+  `configs/persistence.json` → `results/persistence_control/`): varies only
+  how each implementation persists consensus state, using only modes the
+  implementation provides (HashiCorp BoltStore vs `NewInmemStore`, etcd WAL vs
+  `-no-wal`, efficient/epaxos in-memory vs upstream `-durable`). The nvb
+  EPaxos library offers no durable mode, so that cell is skipped and reported
+  rather than filled.
+- **Clean network delay** (`make network-delay`,
+  `configs/networkdelay.json` → `results/network_delay_clean/`): a fixed
+  one-way latency (0, 1, 3, 5, 10 ms, no jitter) applied by the runner with
+  `tc/netem` inside each replica's network namespace, scoped to inter-replica
+  traffic only. No adapter sleeps and no consensus source is modified. The
+  applied qdisc is verified against the kernel and stored per run in
+  `network.json`. This is separate from the archived in-adapter `commcost`
+  family; the two are never pooled.
+- **Conflict validation** (`make conflict-validation`,
+  `configs/conflictvalidation.json` → `results/conflict_validation/`):
+  re-runs the conflict workload while sweeping both the configured hot-key
+  fraction and the number of distinct hot keys, and reports the measured
+  realized hot fraction plus the EPaxos conflict/fast-path/slow-path counters
+  where the implementation provides them (reported as unavailable, not zero,
+  for nvb).
+
+Two reports read the recorded dataset and add no runs:
+`make failure-configuration` documents the failure-detection parameters next
+to every measured availability gap, and `make resource-contention` reports
+per-replica CPU saturation for the large replica counts.
+
 ### Correctness validation
 
 The correctness harness (`runner correctness`, `make correctness`) is

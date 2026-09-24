@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results persistence persistence-dry-run network-delay network-delay-dry-run conflict-validation conflict-validation-dry-run persistence-report network-delay-report conflict-validation-report failure-configuration resource-contention
 
 help:
 	@echo "targets:"
@@ -34,6 +34,12 @@ help:
 	@echo "  compare-datasets  pre-audit vs revised dataset methodology-change report"
 	@echo "  sensitivity      run the implementation-sensitivity experiment (4 implementations)"
 	@echo "  sensitivity-report  analyse the sensitivity dataset into a markdown report"
+	@echo "  persistence      run the persistence-matching experiment (durable vs memory, 4 impls)"
+	@echo "  network-delay    run the OS-level (tc/netem) network-delay experiment, no jitter"
+	@echo "  conflict-validation  re-run the conflict sweep and measure realized contention"
+	@echo "  <family>-dry-run validate a family's config and print its run IDs without running"
+	@echo "  resource-contention  report host resource contention for the large replica counts"
+	@echo "  failure-configuration  document the failure experiment's configured detection budget"
 	@echo "  correctness     run the correctness-validation harness (deterministic consensus checks)"
 	@echo "  check-upstream  verify vendored wire protocol matches upstream"
 	@echo "  clean-results   delete results/raw, processed, figures and report"
@@ -133,6 +139,73 @@ sensitivity-report:
 		--primary-processed results/processed \
 		--out results/sensitivity/sensitivity-report.md \
 		--json results/sensitivity/sensitivity.json | tee results/sensitivity/paper-numbers.txt
+
+# --- Persistence matching, network delay, conflict validation ---
+#
+# Three experiments added on top of the recorded suite. Each writes to its own
+# results subtree; the recorded dataset under results/ is never read or
+# written by them, and each is reported with its own pipeline run so the
+# families are never pooled.
+#
+# Every target has a -dry-run companion that expands the configuration,
+# validates every run, prints the run IDs and checks for collisions without
+# executing anything. Use it before committing hours to a suite.
+
+# Persistence matching: hold workload, replica count, concurrency and network
+# constant and vary only how each implementation persists consensus state, so a
+# leader-based/leaderless difference can be checked against a persistence-
+# matched comparison. Modes are the implementations' own; nvb has no durable
+# mode and that cell is reported as a gap, not filled.
+persistence: build
+	$(RUNNER) matrix --config configs/persistence.json --results-base persistence_control --schedule-seed $(SEED) --skip-existing
+
+persistence-dry-run: build
+	$(RUNNER) matrix --config configs/persistence.json --results-base persistence_control --dry-run
+
+# Network delay: applied at the OS level by the runner (tc/netem inside each
+# replica's network namespace), identically for every implementation. No
+# adapter sleeps, no jitter. Requires Docker containers to be allowed
+# NET_ADMIN, which the rendered compose file adds for this family only.
+network-delay: build
+	$(RUNNER) matrix --config configs/networkdelay.json --results-base network_delay_clean --schedule-seed $(SEED) --skip-existing
+
+network-delay-dry-run: build
+	$(RUNNER) matrix --config configs/networkdelay.json --results-base network_delay_clean --dry-run
+
+# Conflict validation: does the configured conflict fraction actually create
+# protocol-level contention? Sweeps the hot-key fraction and the number of
+# distinct hot keys, and reports the REALIZED hot fraction plus the EPaxos
+# path/conflict counters where the implementation provides them.
+conflict-validation: build
+	$(RUNNER) matrix --config configs/conflictvalidation.json --results-base conflict_validation --schedule-seed $(SEED) --skip-existing
+
+conflict-validation-dry-run: build
+	$(RUNNER) matrix --config configs/conflictvalidation.json --results-base conflict_validation --dry-run
+
+# Report for the three families above, each from its own raw subtree.
+persistence-report:
+	$(PY) report/process.py --raw results/persistence_control/raw --processed results/persistence_control/processed
+	$(PY) report/figures.py --processed results/persistence_control/processed --figures results/persistence_control/figures --raw results/persistence_control/raw --manifest results/persistence_control/execution-manifest.json
+
+network-delay-report:
+	$(PY) report/process.py --raw results/network_delay_clean/raw --processed results/network_delay_clean/processed
+	$(PY) report/figures.py --processed results/network_delay_clean/processed --figures results/network_delay_clean/figures --raw results/network_delay_clean/raw --manifest results/network_delay_clean/execution-manifest.json
+
+conflict-validation-report:
+	$(PY) report/process.py --raw results/conflict_validation/raw --processed results/conflict_validation/processed
+	$(PY) report/figures.py --processed results/conflict_validation/processed --figures results/conflict_validation/figures --raw results/conflict_validation/raw --manifest results/conflict_validation/execution-manifest.json
+
+# Document the failure experiment's configuration next to its measured
+# timings, so no availability gap is quoted without the failure-detection
+# parameters it was observed under.
+failure-configuration:
+	$(PY) report/failure_configuration.py --processed results/processed --raw results/raw --out results/failure-configuration.md
+
+# Host resource contention for the large replica counts, computed from the
+# recorded per-replica telemetry. States explicitly whether the measurements
+# support reading a configuration as CPU-constrained.
+resource-contention:
+	$(PY) report/resource_contention.py --processed results/processed --raw results/raw --out results/resource-contention.md
 
 # Copy the publication figures into the paper's figures/ directory so the
 # LaTeX build can include them.

@@ -30,7 +30,7 @@ import csv
 import json
 import os
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -255,6 +255,134 @@ def mark_included(rows):
     return rows, excluded
 
 
+def effective_persistence(meta, cfg):
+    """The persistence mode a run actually used.
+
+    Read from the metadata the runner recorded (which derives it from the
+    implementation when the configuration leaves it unset), so the mode table
+    lives in exactly one place (labcfg.DefaultPersistence) and cannot drift
+    between the runner and the report.
+    """
+    return ((meta or {}).get("persistence") or {}).get("mode") \
+        or cfg.get("persistence_mode", "")
+
+
+def network_emulation(run_dir, cfg):
+    """The applied OS-level network emulation for a run, with its evidence.
+
+    The configured delay is what the run intended; network.json is what the
+    runner installed and verified inside the replicas. Both are returned, so a
+    delay run whose emulation did not actually apply is visible as such rather
+    than silently counted as a delay measurement.
+    """
+    delay = cfg.get("network_delay_ms", 0) or 0
+    rec = {
+        "network_delay_ms": delay,
+        "network_emulation_method": cfg.get("network_emulation_method") or ("tc-netem" if delay else ""),
+        "network_interface": cfg.get("network_interface") or ("eth0" if delay else ""),
+        "network_filter": cfg.get("network_filter") or ("peers" if delay else ""),
+        "network_emulation_applied": None,
+    }
+    path = os.path.join(run_dir, "network.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            try:
+                net = json.load(f)
+            except json.JSONDecodeError:
+                net = None
+        if isinstance(net, dict):
+            rec["network_emulation_applied"] = bool(net.get("applied"))
+            # The recorded evidence wins over the configuration: it is what was
+            # actually installed in the kernel.
+            if net.get("delay_ms") is not None:
+                rec["network_delay_ms"] = net["delay_ms"]
+            if net.get("method"):
+                rec["network_emulation_method"] = net["method"]
+            if net.get("interface"):
+                rec["network_interface"] = net["interface"]
+            if net.get("filter"):
+                rec["network_filter"] = net["filter"]
+    return rec
+
+
+# EPaxos implementations that expose protocol-level conflict/path counters.
+# The counters are instrumentation added to the efficient/epaxos codebase; the
+# nvb implementation's Stats RPC returns zeros because the library exposes no
+# such counters. Reporting those zeros as measurements would invent data, so the
+# counters are reported only for implementations that actually provide them and
+# the availability flag travels with them.
+EPAXOS_COUNTER_IMPLS = {"original"}
+
+
+def conflict_validation(run_dir, cfg, meta):
+    """Measured conflict/contention quantities for the conflict-validation family.
+
+    Nothing here is inferred from the configured conflict fraction. The
+    realized hot-key fraction comes from the per-request `hot` flag the client
+    writes (hot and cold key ranges are disjoint, so the fraction is exact),
+    and the protocol counters come from the raw stats.json the runner already
+    collects. A quantity an implementation does not provide is None with an
+    availability flag, never zero.
+    """
+    if (meta or {}).get("experiment") != "conflictvalidation":
+        return None
+    out = {
+        "configured_conflict_pct": cfg.get("conflict_pct", 0),
+        "hot_keys": cfg.get("hot_keys", 1),
+        "requests_observed": None,
+        "realized_hot_fraction": None,
+        "keys_distinct": None,
+        "top_key_share": None,
+        "epaxos_fast_path": None,
+        "epaxos_slow_path": None,
+        "epaxos_conflicted": None,
+        "epaxos_counters_available": False,
+    }
+
+    path = os.path.join(run_dir, "requests.csv")
+    if os.path.exists(path):
+        total = 0
+        hot = 0
+        keys = Counter()
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                total += 1
+                if row.get("hot") == "1":
+                    hot += 1
+                keys[row.get("key")] += 1
+        if total:
+            out["requests_observed"] = total
+            out["realized_hot_fraction"] = hot / total
+            out["keys_distinct"] = len(keys)
+            out["top_key_share"] = keys.most_common(1)[0][1] / total
+
+    impl = cfg.get("implementation") or labcfg_primary_impl(cfg.get("protocol", ""))
+    stats_path = os.path.join(run_dir, "stats.json")
+    if cfg.get("protocol") == "epaxos" and impl in EPAXOS_COUNTER_IMPLS and os.path.exists(stats_path):
+        with open(stats_path) as f:
+            try:
+                stats = json.load(f)
+            except json.JSONDecodeError:
+                stats = []
+        usable = [s for s in stats if isinstance(s, dict) and "error" not in s and "fast_path" in s]
+        if usable:
+            out["epaxos_counters_available"] = True
+            out["epaxos_fast_path"] = sum(int(s.get("fast_path", 0)) for s in usable)
+            out["epaxos_slow_path"] = sum(int(s.get("slow_path", 0)) for s in usable)
+            out["epaxos_conflicted"] = sum(int(s.get("conflicted", 0)) for s in usable)
+    return out
+
+
+def labcfg_primary_impl(protocol):
+    """The implementation a protocol's pre-existing configurations used.
+
+    Mirrors labcfg.PrimaryImpl for runs recorded before the implementation
+    field was introduced (where `implementation` is absent from the config).
+    """
+    return "original" if protocol == "epaxos" else "hashicorp"
+
+
 def process_run(run_dir, run_id, series):
     """Compute aggregated metrics for one valid run from its parsed request
     series (see request_series)."""
@@ -286,11 +414,17 @@ def process_run(run_dir, run_id, series):
         "experiment": meta.get("experiment", ""),
         "protocol": cfg["protocol"],
         "implementation": cfg.get("implementation", ""),
+        # The persistence mode the run actually used (resolved by the runner).
+        "persistence_mode": effective_persistence(meta, cfg),
         "replicas": cfg["replicas"],
         "read_pct": cfg["read_pct"],
         "write_pct": cfg["write_pct"],
         "concurrency": cfg["concurrency"],
         "conflict_pct": cfg.get("conflict_pct", 0),
+        # The number of distinct hot keys the configured conflict fraction
+        # targets. Constant (1) for every recorded run, so the key is unchanged
+        # for the existing dataset.
+        "hot_keys": cfg.get("hot_keys", 1),
         "failure_mode": cfg["failure"]["mode"],
         "failed_elections_target": cfg.get("failure", {}).get("failed_elections", 0),
         "comm_cost_ms": cfg.get("comm_cost_ms", 0),
@@ -316,6 +450,13 @@ def process_run(run_dir, run_id, series):
         "attempt": attempt,
         "identity": identity,
     }
+    # Persistence is an independent variable in the persistence-matching family,
+    # so it is part of every run's metrics; the network condition is recorded
+    # with the evidence that it was actually installed.
+    metrics.update(network_emulation(run_dir, cfg))
+    cv = conflict_validation(run_dir, cfg, meta)
+    if cv is not None:
+        metrics.update(cv)
     return metrics
 
 
@@ -520,12 +661,22 @@ def config_key(m):
     conflict_pct 0) and scaling-r3 all share the same protocol/replicas/mix/
     concurrency values, and grouping on those alone silently merges four
     different experiments into one aggregate.
+
+    Persistence mode, hot-key count and the emulated network delay are
+    independent variables of their own families and are part of the key for
+    the same reason: the persistence-matching and network-delay conditions
+    share every other field with each other.
+
+    For every recorded run these fields are their defaults (the mode the
+    implementation already used, hot_keys 1, no emulated delay), so the key of
+    the existing dataset is unchanged.
     """
     return (m.get("experiment", ""), m["protocol"], m.get("implementation", ""),
             m["replicas"], m["read_pct"],
             m["write_pct"], m["concurrency"], m["conflict_pct"], m["failure_mode"],
             m.get("failed_elections_target", 0), m.get("comm_cost_ms", 0),
-            m.get("comm_jitter_pct", 0))
+            m.get("comm_jitter_pct", 0), m.get("persistence_mode", ""),
+            m.get("hot_keys", 1), m.get("network_delay_ms", 0))
 
 
 def summarize_configs(all_metrics):
@@ -546,7 +697,8 @@ def summarize_configs(all_metrics):
 
     out = []
     for key, runs in sorted(groups.items()):
-        exp, proto, impl, replicas, rp, wp, conc, conflict, fmode, ftarget, cost, jitter = key
+        (exp, proto, impl, replicas, rp, wp, conc, conflict, fmode, ftarget,
+         cost, jitter, persist, hot_keys, netdelay) = key
         tputs = [m["throughput_req_s"] for m in runs if m["throughput_req_s"] is not None]
         p50s = [m["latency_ns_p50"] for m in runs if m["latency_ns_p50"] is not None]
         p95s = [m["latency_ns_p95"] for m in runs if m["latency_ns_p95"] is not None]
@@ -570,10 +722,13 @@ def summarize_configs(all_metrics):
         row = {
             "experiment": exp,
             "protocol": proto, "implementation": impl,
+            "persistence_mode": persist,
             "replicas": replicas, "read_pct": rp,
             "write_pct": wp, "concurrency": conc, "conflict_pct": conflict,
+            "hot_keys": hot_keys,
             "failure_mode": fmode, "failed_elections_target": ftarget,
             "comm_cost_ms": cost, "comm_jitter_pct": jitter,
+            "network_delay_ms": netdelay,
             "n_observed": observed[key],
             "n_excluded": observed[key] - len(runs),
             "throughput": stat(tputs),

@@ -282,6 +282,21 @@ func runIDFor(cfg labcfg.Run, rep int) string {
 		// The communication cost and jitter are part of the run ID so the
 		// cost levels never collide.
 		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-x%d-j%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, cfg.CommCostMS, cfg.CommJitterPct, rep)
+	case "persistence":
+		// The persistence mode is part of the run ID, so the durable and
+		// in-memory runs of the same implementation and configuration can
+		// never collide (they are the experiment's independent variable).
+		return fmt.Sprintf("%s-%s-%s-r%d-w%d-c%d-%d", experiment, proto, cfg.Persist(), cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
+	case "networkdelay":
+		// The emulated delay is part of the run ID, so the delay levels never
+		// collide. The token carries its unit (d<N>ms) to keep the ID
+		// unambiguous against the repetition suffix.
+		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-d%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, cfg.NetworkDelayMS, rep)
+	case "conflictvalidation":
+		// Both independent variables are encoded: the configured hot-key
+		// fraction and the number of distinct hot keys it targets. This family
+		// has its own name so the recorded conflict runs keep their IDs.
+		return fmt.Sprintf("%s-%s-r%d-k%d-x%d-w%d-c%d-%d", experiment, proto, cfg.Replicas, cfg.HotKeys, cfg.ConflictPct, cfg.WritePct, cfg.Concurrency, rep)
 	default:
 		return fmt.Sprintf("%s-%s-r%d-w%d-c%d-%d", experiment, proto, cfg.Replicas, cfg.WritePct, cfg.Concurrency, rep)
 	}

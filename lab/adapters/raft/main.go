@@ -54,6 +54,7 @@ var (
 	electionMS  = flag.Int("election-ms", 2000, "Raft election timeout (ms)")
 	snapThr     = flag.Int("snapshot-threshold", 8192, "Raft snapshot threshold")
 	trailingLog = flag.Int("trailing-logs", 1024, "Raft trailing logs")
+	storeMode   = flag.String("store", "bolt", "persistent store backend: bolt (raft-boltdb, durable) or inmem (raft.NewInmemStore, no durability)")
 	applyTO     = flag.Duration("apply-timeout", 5*time.Second, "timeout for raft.Apply")
 	commCostMS  = flag.Int("comm-cost-ms", 0, "fixed one-way latency (ms) added to every inter-replica message; 0 = local-network baseline")
 	commJitter  = flag.Int("comm-jitter-pct", 0, "jitter as % of comm-cost-ms: each message waits an extra uniform delay in [0, cost*jitter/100]")
@@ -439,16 +440,33 @@ func resolvePeerAddr(host string, port int) (string, error) {
 }
 
 func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server, fsm raft.FSM) (*raft.Raft, *isolatingTransport, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, nil, err
-	}
-	store, err := raftboltdb.NewBoltStore(filepath.Join(dir, "raft.db"))
-	if err != nil {
-		return nil, nil, err
-	}
-	snapshots, err := raft.NewFileSnapshotStore(dir, 2, os.Stderr)
-	if err != nil {
-		return nil, nil, err
+	// The storage backend is a configuration switch on github.com/hashicorp/raft's
+	// own storage interface. The lab adds no persistence mechanism of its own:
+	// both modes are provided by the library.
+	var (
+		store     raft.LogStore
+		stable    raft.StableStore
+		snapshots raft.SnapshotStore
+	)
+	switch *storeMode {
+	case "bolt":
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, nil, err
+		}
+		boltStore, err := raftboltdb.NewBoltStore(filepath.Join(dir, "raft.db"))
+		if err != nil {
+			return nil, nil, err
+		}
+		fileSnaps, err := raft.NewFileSnapshotStore(dir, 2, os.Stderr)
+		if err != nil {
+			return nil, nil, err
+		}
+		store, stable, snapshots = boltStore, boltStore, fileSnaps
+	case "inmem":
+		inmem := raft.NewInmemStore()
+		store, stable, snapshots = inmem, inmem, raft.NewInmemSnapshotStore()
+	default:
+		return nil, nil, fmt.Errorf("unknown -store %q (want bolt or inmem)", *storeMode)
 	}
 	transport, err := raft.NewTCPTransport(bindAddr, advertise, 3, 10*time.Second, os.Stderr)
 	if err != nil {
@@ -468,17 +486,17 @@ func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server
 	cfg.TrailingLogs = uint64(*trailingLog)
 	cfg.LogOutput = os.Stderr
 
-	hasState, err := raft.HasExistingState(store, store, snapshots)
+	hasState, err := raft.HasExistingState(store, stable, snapshots)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !hasState {
 		conf := raft.Configuration{Servers: peers}
-		if err := raft.BootstrapCluster(cfg, store, store, snapshots, iso, conf); err != nil {
+		if err := raft.BootstrapCluster(cfg, store, stable, snapshots, iso, conf); err != nil {
 			return nil, nil, err
 		}
 	}
-	r, err := raft.NewRaft(cfg, fsm, store, store, snapshots, iso)
+	r, err := raft.NewRaft(cfg, fsm, store, stable, snapshots, iso)
 	if err != nil {
 		return nil, nil, err
 	}

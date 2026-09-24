@@ -133,6 +133,19 @@ func executeRun(cfg labcfg.Run, rep int, env runEnv, sched *schedInfo) runResult
 	}
 	defer composeDown(dir, runID, composePath)
 
+	// Install the OS-level network emulation, when this run uses any, before
+	// the measured phase begins. It is applied from outside the implementations
+	// (tc/netem inside each replica's own network namespace), so both protocols
+	// receive the identical condition and no consensus code is involved. A
+	// failure here fails the run: a measurement taken without the intended
+	// network condition would otherwise be reported as a delay measurement.
+	if _, err := applyNetworkDelay(dir, cfg, runID, events); err != nil {
+		res.Reason = "network emulation: " + err.Error()
+		events.log(runID, "status", "failed: "+res.Reason)
+		writeMetadata(dir, cfg, rep, runID, res, started, time.Now(), env, sched)
+		return res
+	}
+
 	// Start the host-side resource monitor immediately; sampling skips
 	// containers that are not yet running.
 	stopMonitor := startMonitor(dir, cfg, runID)
@@ -520,25 +533,58 @@ func writeMetadata(dir string, cfg labcfg.Run, rep int, runID string, res runRes
 	os.WriteFile(filepath.Join(dir, "metadata.json"), data, 0o644)
 }
 
-// persistenceClass explicitly classifies how persistent state is handled for
-// each protocol. Both protocols' persistence is class B (state that MUST be
-// destroyed between repetitions): persistence is not part of any experiment,
-// so no consensus state may survive from one repetition to the next.
+// persistenceClass records how persistent state is handled for this run. It is
+// derived from the configured persistence mode and the implementation, never
+// hard-coded: the persistence-matching experiment varies persistence on
+// purpose, so a fixed claim about storage would become false for those runs.
 func persistenceClass(cfg labcfg.Run) map[string]any {
-	if cfg.Protocol == "raft" {
-		return map[string]any{
-			"classification":            "B: state that MUST be destroyed between repetitions",
-			"state":                     "current term, votedFor, log entries, snapshots, boltdb database files, node identity, cluster membership (all persisted by HashiCorp Raft to per-replica boltdb)",
-			"destruction":               "per-replica named volumes (raftdata0..N-1) removed by `docker compose down -v`; removal verified post-teardown",
-			"persistence_is_experiment": false,
+	impl := cfg.Impl()
+	mode := cfg.Persist()
+	class := map[string]any{
+		"mode":                        mode,
+		"is_experiment_variable":      cfg.PersistenceMode != "",
+		"modes_implementation_offers": labcfg.PersistModes(impl),
+		"classification": "consensus state is destroyed between repetitions, so no " +
+			"consensus state survives from one repetition to the next",
+	}
+	switch impl {
+	case labcfg.ImplHashicorp:
+		if mode == labcfg.PersistDurable {
+			class["state"] = "current term, votedFor, log entries, snapshots and cluster membership persist across process restart"
+			class["mechanism"] = "raft-boltdb NewBoltStore + NewFileSnapshotStore (github.com/hashicorp/raft v1.7.3 storage interface)"
+			class["destruction"] = "per-replica named volumes (raftdata0..N-1) removed by `docker compose down -v`; removal verified post-teardown"
+		} else {
+			class["state"] = "current term, votedFor, log entries and snapshots live only in the replica process and are lost on restart"
+			class["mechanism"] = "raft.NewInmemStore + raft.NewInmemSnapshotStore (provided by github.com/hashicorp/raft)"
+			class["destruction"] = "no volumes are created for this mode; the state is removed with the container"
 		}
+	case labcfg.ImplEtcd, labcfg.ImplEtcdCore:
+		if mode == labcfg.PersistDurable {
+			class["state"] = "current term, votedFor, log entries and snapshots persist across process restart"
+			class["mechanism"] = "adapter write-ahead log (one batched write + fsync per append batch) on a per-replica volume, with raft.NewMemoryStorage as the in-memory mirror"
+			class["destruction"] = "per-replica named volumes removed by `docker compose down -v`; removal verified post-teardown"
+		} else {
+			class["state"] = "current term, votedFor, log entries and snapshots live only in raft.NewMemoryStorage; no write-ahead log is written and no fsync occurs"
+			class["mechanism"] = "go.etcd.io/raft/v3 core with raft.NewMemoryStorage only (adapter -no-wal)"
+			class["destruction"] = "no volumes are created for this mode; the state is removed with the container"
+		}
+	case labcfg.ImplOriginal:
+		if mode == labcfg.PersistDurable {
+			class["state"] = "every consensus message is appended to a per-replica stable-store file and fsynced before the protocol proceeds"
+			class["mechanism"] = "upstream efficient/epaxos server -durable (genericsmr.StableStore file append + Sync on the consensus path)"
+			class["destruction"] = "the stable-store file lives in the container's writable layer and is removed with the container"
+		} else {
+			class["state"] = "all EPaxos state (instances, dependencies, execution status, reply cache) lives only in the replica process; the upstream default, no -durable"
+			class["mechanism"] = "upstream efficient/epaxos in-memory replica"
+			class["destruction"] = "containers removed by `docker compose down -v`; no persistent volumes"
+		}
+	case labcfg.ImplNVB:
+		class["state"] = "all EPaxos state lives in the library's in-memory Storage implementation and is lost on restart"
+		class["mechanism"] = "upstream nvb/epaxos epaxos.NewMemoryStorage (the library's default Storage)"
+		class["destruction"] = "containers removed by `docker compose down -v`; no persistent volumes"
+		class["durable_not_offered"] = "the library exposes only the Storage interface with an in-memory implementation; a durable backend exists only in its demo server (Badger-backed) and is not part of the library interface, so no durable mode is offered for this implementation"
 	}
-	return map[string]any{
-		"classification":            "B: state that MUST be destroyed between repetitions",
-		"state":                     "in-memory only (upstream default, no -durable); no WAL/database files",
-		"destruction":               "containers removed by `docker compose down -v`; no persistent volumes",
-		"persistence_is_experiment": false,
-	}
+	return class
 }
 
 // readSemantics documents the consistency semantics of the read path for
@@ -583,19 +629,27 @@ func notes(cfg labcfg.Run) []string {
 		"reads (GET) are routed through consensus in both protocols",
 	}
 	if cfg.Protocol == "raft" {
+		storage := "state is persisted to a per-replica boltdb volume (survives replica restart)"
+		if cfg.Persist() == labcfg.PersistMemory {
+			storage = "state is held in raft.NewInmemStore only (no durability; lost on restart)"
+		}
 		return append(common,
 			"Raft: github.com/hashicorp/raft v1.7.3 performs all consensus; the adapter only converts benchmark requests into raft.Apply calls",
 			"Raft: client requests are sent to the leader reported by raft.Raft.Leader() via the raft master",
 			fmt.Sprintf("Raft: heartbeat=%dms election=%dms snapshot_threshold=%d trailing_logs=%d",
 				cfg.RaftHeartbeatMS, cfg.RaftElectionMS, cfg.RaftSnapshotThr, cfg.RaftTrailingLogs),
-			"Raft: state is persisted to a per-replica boltdb volume (survives replica restart)",
+			"Raft: "+storage,
 		)
+	}
+	storage := "replica state is in memory (upstream default, no -durable); a restarted replica loses local state"
+	if cfg.Persist() == labcfg.PersistDurable {
+		storage = "replica state is logged to a per-replica stable-store file and fsynced (upstream -durable)"
 	}
 	return append(common,
 		"EPaxos: upstream efficient/epaxos server is used unchanged (-e -exec -dreply)",
 		"EPaxos: client requests are spread round-robin across replicas (leaderless)",
 		"EPaxos: upstream master is used unchanged; its reported leader is bookkeeping only, not used by the client",
-		"EPaxos: replica state is in memory (upstream default, no -durable); a restarted replica loses local state",
+		"EPaxos: "+storage,
 	)
 }
 

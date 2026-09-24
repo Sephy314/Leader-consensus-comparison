@@ -27,8 +27,13 @@ type composeModel struct {
 	ReplicaCmds  [][]string
 	ClientCmd    []string
 	DataVolumes  bool // Raft replicas persist state to named volumes
-	RaftPort     int
-	ClientPort   int
+	// NetEmulated adds NET_ADMIN to each replica container so the runner can
+	// install an OS-level network-emulation qdisc inside the replica's own
+	// network namespace (see runner/netem.go). It is a container capability,
+	// not a code change: the consensus implementations are untouched.
+	NetEmulated bool
+	RaftPort    int
+	ClientPort  int
 }
 
 const composeTemplate = `name: {{.Project}}
@@ -104,6 +109,12 @@ func renderCompose(dir string, cfg labcfg.Run, runID string) (string, error) {
 		if model.DataVolumes {
 			fmt.Fprintf(&svc, "    volumes:\n      - raftdata%d:/data\n", i)
 		}
+		if model.NetEmulated {
+			// Required only to install the emulation qdisc inside this
+			// container; it grants no other privilege in practice and is
+			// never set on the client or master.
+			fmt.Fprintf(&svc, "    cap_add:\n      - NET_ADMIN\n")
+		}
 		fmt.Fprintf(&svc, "    networks: [bench]\n")
 	}
 	data.ReplicaServices = strings.TrimRight(svc.String(), "\n")
@@ -158,6 +169,7 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 		ReplicaMemMB: cfg.ReplicaMemMB,
 		ClientCPUs:   cfg.ClientCPUs,
 		ClientMemMB:  cfg.ClientMemMB,
+		NetEmulated:  cfg.NetworkEmulated(),
 		ClientPort:   7070,
 		RaftPort:     6000,
 	}
@@ -167,7 +179,17 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 	// workload, metrics, and analysis are shared by all four implementations.
 	switch cfg.Impl() {
 	case labcfg.ImplHashicorp:
-		m.DataVolumes = true
+		// Raft A. The storage backend follows the configured persistence
+		// mode, and both modes come from github.com/hashicorp/raft itself:
+		// "durable" uses raft-boltdb (the recorded baseline), "memory" uses
+		// the library's NewInmemStore. A memory run has no state to destroy
+		// between repetitions, so it gets no per-replica volume.
+		durable := cfg.Persist() == labcfg.PersistDurable
+		m.DataVolumes = durable
+		raftStore := "inmem"
+		if durable {
+			raftStore = "bolt"
+		}
 		m.MasterCmd = []string{"raftmaster", "-port", "7087", "-n", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
 			m.ReplicaCmds = append(m.ReplicaCmds, []string{
@@ -177,6 +199,7 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-client-port", "7070",
 				"-raft-port", "6000",
 				"-dir", "/data",
+				"-store", raftStore,
 				"-gomaxprocs", itoa(cfg.GOMAXPROCS),
 				"-heartbeat-ms", itoa(cfg.RaftHeartbeatMS),
 				"-election-ms", itoa(cfg.RaftElectionMS),
@@ -186,15 +209,20 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 		}
 	case labcfg.ImplEtcd:
 		// Raft B: go.etcd.io/raft/v3. Same master (the lab's raft master),
-		// same client port, same Raft transport port, same persistent
-		// /data volume. The election/heartbeat timeouts are expressed in
-		// ticks by the etcd library; the adapter converts the same
-		// millisecond timeouts into ticks so both Raft implementations run
-		// with the same effective timeouts.
-		m.DataVolumes = true
+		// same client port, same Raft transport port. The election/heartbeat
+		// timeouts are expressed in ticks by the etcd library; the adapter
+		// converts the same millisecond timeouts into ticks so both Raft
+		// implementations run with the same effective timeouts.
+		//
+		// The persistence mode selects the storage path: "durable" writes and
+		// fsyncs a write-ahead log in the per-replica volume, "memory" runs the
+		// same raft core with raft.NewMemoryStorage only (-no-wal), which is the
+		// path the etcd-core analysis mode already used.
+		durable := cfg.Persist() == labcfg.PersistDurable
+		m.DataVolumes = durable
 		m.MasterCmd = []string{"raftmaster", "-port", "7087", "-n", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
-			m.ReplicaCmds = append(m.ReplicaCmds, []string{
+			cmd := []string{
 				"etcdraftadapter",
 				"-master", "master:7087",
 				"-addr", fmt.Sprintf("replica%d", i),
@@ -205,7 +233,11 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-heartbeat-ms", itoa(cfg.RaftHeartbeatMS),
 				"-election-ms", itoa(cfg.RaftElectionMS),
 				"-trailing-logs", itoa(cfg.RaftTrailingLogs),
-			})
+			}
+			if !durable {
+				cmd = append(cmd, "-no-wal")
+			}
+			m.ReplicaCmds = append(m.ReplicaCmds, cmd)
 		}
 	case labcfg.ImplEtcdCore:
 		// Raft core-only analysis mode: the same etcd raft core with
@@ -231,9 +263,14 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 			})
 		}
 	case labcfg.ImplOriginal:
+		// EPaxos A. The upstream server already provides both persistence
+		// paths: without -durable the replica keeps consensus state in memory
+		// (the recorded baseline); with -durable it appends every consensus
+		// message to a stable-store file and fsyncs it. The flag is the
+		// upstream's own; no logging path is added by the lab.
 		m.MasterCmd = []string{"epaxos-master", "-port", "7087", "-N", itoa(cfg.Replicas)}
 		for i := 0; i < cfg.Replicas; i++ {
-			m.ReplicaCmds = append(m.ReplicaCmds, []string{
+			cmd := []string{
 				"epaxos-server",
 				"-port", "7070",
 				"-maddr", "master",
@@ -241,7 +278,11 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 				"-addr", fmt.Sprintf("replica%d", i),
 				"-e", "-exec", "-dreply",
 				"-p", itoa(cfg.GOMAXPROCS),
-			})
+			}
+			if cfg.Persist() == labcfg.PersistDurable {
+				cmd = append(cmd, "-durable")
+			}
+			m.ReplicaCmds = append(m.ReplicaCmds, cmd)
 		}
 	case labcfg.ImplNVB:
 		// EPaxos B: github.com/nvanbenschoten/epaxos. Uses the upstream

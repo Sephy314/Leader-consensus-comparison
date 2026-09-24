@@ -133,6 +133,93 @@ Two recovery metrics are reported for election runs:
   injection duration and measures only the recovery behaviour after the
   injection has expired.
 
+The detection budget these measurements are conditioned on is recorded per
+run (`raft_heartbeat_ms`, `raft_election_ms`; 1000 ms and 2000 ms in the
+recorded suite, identical for both Raft implementations).
+`make failure-configuration` prints the configuration next to every measured
+gap, so a gap is never quoted without it.
+
+## 6a. Persistence matching, clean network delay, conflict validation
+
+Three families added on top of the recorded suite. Each has its own
+configuration file and its own results subtree (`--results-base`), and none of
+them reads or writes the recorded dataset. Each has a `-dry-run` make target
+that expands the configuration, validates every run and prints the run IDs
+without executing anything.
+
+### Persistence matching (`configs/persistence.json`, `make persistence`)
+
+Holds workload, replica count, concurrency, durations, repetitions and network
+constant and varies only how each implementation persists consensus state, so
+a leader-based/leaderless difference can be checked against a
+persistence-matched comparison instead of being attributed to the consensus
+structure by default.
+
+Only persistence modes the implementation itself provides are used; no
+mechanism is added by the lab:
+
+| implementation | durable | memory |
+|---|---|---|
+| HashiCorp Raft | `raft-boltdb` BoltStore (the recorded baseline) | `raft.NewInmemStore` + `raft.NewInmemSnapshotStore` |
+| etcd Raft | adapter write-ahead log (batched write + fsync) | `raft.NewMemoryStorage` only (adapter `-no-wal`) |
+| EPaxos (efficient) | upstream `-durable` (stable-store file + fsync) | upstream default (in-memory replica) |
+| EPaxos (nvb) | **not offered** — the library exposes only the `Storage` interface with an in-memory implementation | `epaxos.NewMemoryStorage` |
+
+The missing cell (nvb / durable) is skipped during expansion with a printed
+notice and reported as a gap; it is never filled with a new mechanism. The
+effective mode is recorded in every run's `metadata.json` under
+`persistence.mode`, derived from the configuration, together with the
+mechanism and the state-destruction path actually used.
+
+### Clean network delay (`configs/networkdelay.json`, `make network-delay`)
+
+A fixed one-way latency (0, 1, 3, 5, 10 ms) is applied to inter-replica
+traffic from **outside** the implementations: the runner installs a `tc/netem`
+qdisc inside each replica's own network namespace before the measured phase.
+No adapter sleeps and no consensus source is modified, so the condition a run
+is measured under is not produced by the code under test, and every
+implementation receives the identical condition.
+
+- Scope is `filter=peers`: only packets addressed to another replica are
+  delayed, so client-observed latency is not polluted by an emulation the
+  consensus path alone should receive. Every replica delays its own egress, so
+  an inter-replica round trip accumulates the configured delay once per hop.
+- The replicas get `NET_ADMIN` (added to the rendered compose file for this
+  family only) so `tc` can be installed; the client and coordinator do not.
+- There is no jitter in this family.
+- The applied emulation is verified by reading the kernel's own view back
+  (`tc -s qdisc show`); the commands, their output and that verification are
+  stored per run in `network.json`, and a run whose emulation did not apply
+  fails instead of being recorded as a delay measurement.
+
+This family is separate from the archived `results/commcost/` dataset, which
+used in-adapter per-message sleeps *with* jitter. `labcfg.Validate` refuses a
+run that sets both mechanisms, and the two datasets are never pooled or
+reinterpreted as one another.
+
+### Conflict validation (`configs/conflictvalidation.json`, `make conflict-validation`)
+
+Re-runs the conflict workload to answer a question the recorded sweep cannot:
+*did the configured conflict fraction actually create protocol-level
+contention?* It sweeps two independent variables: the configured hot-key
+fraction (`conflict_pcts`) and the number of distinct hot keys that fraction
+targets (`hot_keys`). A smaller hot-key set concentrates requests on fewer
+keys and builds longer dependency chains at the same configured fraction,
+which separates "how often a hot key is hit" from "how much contention that
+creates".
+
+Conflict is produced entirely in the client workload generator (disjoint
+hot/cold key ranges); nothing is inserted into the EPaxos implementation — no
+artificial conflicts, sleeps, injected dependencies or delays.
+
+The report carries, per run, the **realized** hot-key fraction (from the
+per-request `hot` flag, exact because the ranges are disjoint), the number of
+distinct keys observed and the top key's share, plus the EPaxos
+`conflicted` / `fast_path` / `slow_path` counters where the implementation
+provides them. The counters are instrumentation added to the efficient/epaxos
+codebase; nvb exposes none, so for nvb they are reported as *unavailable*
+(`epaxos_counters_available=false`), never as zero.
+
 ## 7. Reproducibility
 
 - Exact versions of every component are pinned and recorded per run

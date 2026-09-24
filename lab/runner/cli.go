@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"conslab/internal/labcfg"
@@ -25,7 +27,15 @@ func cmdRun(args []string) error {
 	resultsBase = *base
 	rest := fs.Args()
 	if len(rest) < 1 {
-		return fmt.Errorf("usage: runner run <config.json> [--rep N]")
+		return fmt.Errorf("usage: runner run [flags] <config.json>\n(flags must precede the config path)")
+	}
+	// Go's flag package stops parsing at the first non-flag argument, so
+	// `runner run config.json --rep 3 --results-base foo` silently ignores both
+	// flags: the run uses the default repetition selection AND writes to the
+	// primary dataset instead of the intended subtree. That is a silent write
+	// into recorded results, so it is an error here.
+	if err := rejectTrailingFlags("run", rest); err != nil {
+		return err
 	}
 	cfg, err := labcfg.Load(rest[0])
 	if err != nil {
@@ -35,18 +45,35 @@ func cmdRun(args []string) error {
 	return summarize(results)
 }
 
+// rejectTrailingFlags fails when an argument after the positional ones looks
+// like a flag, because the flag parser has already stopped and the flag would
+// be ignored.
+func rejectTrailingFlags(cmd string, positional []string) error {
+	for _, a := range positional {
+		if strings.HasPrefix(a, "-") {
+			return fmt.Errorf(
+				"%s: %q came after a positional argument and was ignored; "+
+					"put every flag before the positional arguments", cmd, a)
+		}
+	}
+	return nil
+}
+
 // ---- matrix ----
 
 // MatrixSpec is the compact description of the full experiment matrix.
 type MatrixSpec struct {
-	Defaults    labcfg.Run     `json:"defaults"`
-	Workload    *WorkloadSpec  `json:"workload"`
-	Scaling     *ScalingSpec   `json:"scaling"`
-	Conflict    *ConflictSpec  `json:"conflict"`
-	Concurrency *ConcSpec      `json:"concurrency"`
-	Failure     *FailureMatrix `json:"failure"`
-	Election    *ElectionSpec  `json:"election"`
-	CommCost    *CommCostSpec  `json:"commcost"`
+	Defaults     labcfg.Run        `json:"defaults"`
+	Workload     *WorkloadSpec     `json:"workload"`
+	Scaling      *ScalingSpec      `json:"scaling"`
+	Conflict     *ConflictSpec     `json:"conflict"`
+	Concurrency  *ConcSpec         `json:"concurrency"`
+	Failure      *FailureMatrix    `json:"failure"`
+	Election     *ElectionSpec     `json:"election"`
+	CommCost     *CommCostSpec     `json:"commcost"`
+	Persistence  *PersistenceSpec  `json:"persistence"`
+	NetworkDelay *NetworkDelaySpec `json:"networkdelay"`
+	ConflictVal  *ConflictValSpec  `json:"conflictvalidation"`
 }
 
 type WorkloadSpec struct {
@@ -121,6 +148,58 @@ type CommCostPoint struct {
 	JitterPct int `json:"jitter_pct"`
 }
 
+// PersistenceSpec is the persistence-matching experiment: hold the workload,
+// replica count, concurrency, durations and repetition count fixed, and vary
+// only how each implementation persists consensus state. Combinations an
+// implementation does not provide are skipped and reported; no persistence
+// mechanism is invented to fill an empty cell.
+type PersistenceSpec struct {
+	Protocols       []string `json:"protocols"`
+	Implementations []string `json:"implementations"`
+	Modes           []string `json:"modes"` // durable | memory
+	Replicas        []int    `json:"replicas"`
+	WritePct        int      `json:"write_pct"`
+	Concurrency     int      `json:"concurrency"`
+}
+
+// ConflictValSpec re-runs the conflict workload in order to verify whether the
+// CONFIGURED conflict fraction actually produced protocol-level contention.
+//
+// It sweeps two independent variables: the fraction of requests sent to the hot
+// key range, and the NUMBER of distinct hot keys that fraction is spread over.
+// At the same configured fraction a smaller hot-key set produces longer
+// dependency chains, so the pair separates "how often requests hit a hot key"
+// from "how much contention that actually creates".
+//
+// The windowed conflict family (configs/matrix.json) is deliberately left
+// untouched: this family has its own name and run-ID encoding so the recorded
+// conflict runs keep their identity and are never re-run or merged.
+type ConflictValSpec struct {
+	Protocols       []string `json:"protocols"`
+	Implementations []string `json:"implementations"`
+	ConflictPcts    []int    `json:"conflict_pcts"`
+	HotKeys         []int    `json:"hot_keys"` // fixed set of shared keys the hot fraction targets
+	Replicas        int      `json:"replicas"`
+	WritePct        int      `json:"write_pct"`
+	Concurrency     int      `json:"concurrency"`
+}
+
+// NetworkDelaySpec is the network-delay experiment. The delay is applied by the
+// runner at the OS level (tc/netem inside each replica's network namespace),
+// identically for every implementation, so no implementation participates in
+// producing the condition it is measured under.
+type NetworkDelaySpec struct {
+	Protocols       []string `json:"protocols"`
+	Implementations []string `json:"implementations"`
+	Replicas        []int    `json:"replicas"`
+	WritePct        int      `json:"write_pct"`
+	Concurrency     int      `json:"concurrency"`
+	DelaysMS        []int    `json:"delays_ms"`
+	EmulationMethod string   `json:"emulation_method"` // default tc-netem
+	Interface       string   `json:"interface"`        // default eth0
+	Filter          string   `json:"filter"`           // default peers
+}
+
 type FailureCase struct {
 	Protocol        string             `json:"protocol"`
 	Mode            labcfg.FailureMode `json:"mode"`
@@ -141,6 +220,7 @@ func cmdMatrix(args []string) error {
 	skipExisting := fs.Bool("skip-existing", false, "skip runs that already completed in an earlier batch (resume an interrupted matrix)")
 	rerun := fs.Bool("rerun-contaminated", false, "re-run only the attempts flagged contaminated by host anomalies (the originals are kept)")
 	base := fs.String("results-base", "", "results subtree to write to (empty = the primary dataset)")
+	dryRun := fs.Bool("dry-run", false, "expand the matrix, print the run IDs and configuration that would be executed, and exit without running anything")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -153,12 +233,63 @@ func cmdMatrix(args []string) error {
 		return err
 	}
 	configs := expandMatrix(spec, *only)
+	if *dryRun {
+		return dryRunMatrix(*configPath, configs)
+	}
 	if *limit > 0 && len(configs) > *limit {
 		configs = configs[:*limit]
 	}
 	fmt.Printf("matrix: %d run configurations\n", len(configs))
 	results := runConfigs(configs, 0, *scheduleSeed, *skipExisting)
 	return summarize(results)
+}
+
+// dryRunMatrix prints what a matrix config expands to, without running it. It
+// exists so a new family (persistence, network delay, conflict validation) can
+// be checked end to end - expansion, validation, the effective storage and
+// network settings, and the resulting run IDs - before committing hours to a
+// suite. It never writes to results/.
+func dryRunMatrix(path string, configs []labcfg.Run) error {
+	fmt.Printf("dry run: %s would execute %d run configurations\n", path, len(configs))
+	if len(configs) == 0 {
+		return fmt.Errorf("the matrix expanded to zero configurations (is the family name correct?)")
+	}
+	invalid := 0
+	seen := map[string]bool{}
+	for _, cfg := range configs {
+		id := runIDFor(cfg, 1)
+		if seen[id] {
+			fmt.Printf("  COLLISION %s: this identity is already claimed by another configuration\n", id)
+		}
+		seen[id] = true
+		if err := cfg.Validate(); err != nil {
+			fmt.Printf("  INVALID %s: %v\n", id, err)
+			invalid++
+		}
+	}
+	counts := map[string]int{}
+	for _, cfg := range configs {
+		counts[fmt.Sprintf("%s/%s/%s", experimentName(cfg), cfg.Protocol, cfg.Impl())]++
+	}
+	families := make([]string, 0, len(counts))
+	for k := range counts {
+		families = append(families, k)
+	}
+	sort.Strings(families)
+	for _, k := range families {
+		fmt.Printf("  %-34s %3d configurations x %2d repetitions = %4d runs\n",
+			k, counts[k], configs[0].Repetitions, counts[k]*configs[0].Repetitions)
+	}
+	for _, cfg := range configs {
+		fmt.Printf("  %-58s persistence=%-7s delay=%dms filter=%s r=%d c=%d w=%d\n",
+			runIDFor(cfg, 1), cfg.Persist(), cfg.NetworkDelayMS, cfg.EmulationFilter(),
+			cfg.Replicas, cfg.Concurrency, cfg.WritePct)
+	}
+	if invalid > 0 {
+		return fmt.Errorf("%d expanded configurations are invalid", invalid)
+	}
+	fmt.Println("dry run: every configuration is valid, no run IDs collide")
+	return nil
 }
 
 func loadMatrix(path string) (MatrixSpec, error) {
@@ -300,6 +431,92 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 						cfg.Concurrency = spec.CommCost.Concurrency
 						cfg.CommCostMS = pt.CostMS
 						cfg.CommJitterPct = pt.JitterPct
+						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+						out = append(out, cfg)
+					}
+				}
+			}
+		}
+	}
+
+	if spec.Persistence != nil && (only == "" || only == "persistence") {
+		for _, proto := range spec.Persistence.Protocols {
+			for _, impl := range implementationsFor(proto, spec.Persistence.Implementations) {
+				name := impl
+				if name == "" {
+					name = labcfg.PrimaryImpl(proto)
+				}
+				for _, mode := range spec.Persistence.Modes {
+					if !labcfg.PersistSupported(name, mode) {
+						// Only modes the implementation itself provides are expanded.
+						// The gap is reported rather than filled with an invented
+						// persistence mechanism, and it is visible in the run list.
+						fmt.Printf("persistence: skipping %s/%s mode=%s (provides %v)\n",
+							proto, name, mode, labcfg.PersistModes(name))
+						continue
+					}
+					for _, n := range spec.Persistence.Replicas {
+						cfg := base
+						cfg.Experiment = "persistence"
+						cfg.Protocol = proto
+						cfg.Implementation = impl
+						cfg.PersistenceMode = mode
+						cfg.Replicas = n
+						cfg.WritePct = spec.Persistence.WritePct
+						cfg.ReadPct = 100 - spec.Persistence.WritePct
+						cfg.Concurrency = spec.Persistence.Concurrency
+						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+						out = append(out, cfg)
+					}
+				}
+			}
+		}
+	}
+
+	if spec.ConflictVal != nil && (only == "" || only == "conflictvalidation") {
+		for _, proto := range spec.ConflictVal.Protocols {
+			for _, impl := range implementationsFor(proto, spec.ConflictVal.Implementations) {
+				for _, hk := range spec.ConflictVal.HotKeys {
+					for _, pct := range spec.ConflictVal.ConflictPcts {
+						cfg := base
+						cfg.Experiment = "conflictvalidation"
+						cfg.Protocol = proto
+						cfg.Implementation = impl
+						cfg.Replicas = spec.ConflictVal.Replicas
+						cfg.WritePct = spec.ConflictVal.WritePct
+						cfg.ReadPct = 100 - spec.ConflictVal.WritePct
+						cfg.Concurrency = spec.ConflictVal.Concurrency
+						cfg.ConflictPct = pct
+						cfg.HotKeys = hk
+						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+						out = append(out, cfg)
+					}
+				}
+			}
+		}
+	}
+
+	if spec.NetworkDelay != nil && (only == "" || only == "networkdelay") {
+		for _, proto := range spec.NetworkDelay.Protocols {
+			for _, impl := range implementationsFor(proto, spec.NetworkDelay.Implementations) {
+				for _, n := range spec.NetworkDelay.Replicas {
+					for _, d := range spec.NetworkDelay.DelaysMS {
+						cfg := base
+						cfg.Experiment = "networkdelay"
+						cfg.Protocol = proto
+						cfg.Implementation = impl
+						cfg.Replicas = n
+						cfg.WritePct = spec.NetworkDelay.WritePct
+						cfg.ReadPct = 100 - spec.NetworkDelay.WritePct
+						cfg.Concurrency = spec.NetworkDelay.Concurrency
+						cfg.NetworkDelayMS = d
+						cfg.NetworkEmulationMethod = spec.NetworkDelay.EmulationMethod
+						cfg.NetworkInterface = spec.NetworkDelay.Interface
+						cfg.NetworkFilter = spec.NetworkDelay.Filter
+						// This family never uses the legacy in-adapter injection: the two
+						// mechanisms must not be confounded in one run (see Validate).
+						cfg.CommCostMS = 0
+						cfg.CommJitterPct = 0
 						cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
 						out = append(out, cfg)
 					}
@@ -612,5 +829,24 @@ func applyRunDefaults(dst *labcfg.Run, src labcfg.Run) {
 	}
 	if dst.ConflictPct == 0 {
 		dst.ConflictPct = src.ConflictPct
+	}
+	// The persistence and network-emulation fields are carried explicitly so a
+	// `defaults` block in a config file can never be silently dropped for the
+	// cases that do not restate them (the failure mode that once dropped
+	// hot_keys and conflict_pct).
+	if dst.PersistenceMode == "" {
+		dst.PersistenceMode = src.PersistenceMode
+	}
+	if dst.NetworkDelayMS == 0 {
+		dst.NetworkDelayMS = src.NetworkDelayMS
+	}
+	if dst.NetworkEmulationMethod == "" {
+		dst.NetworkEmulationMethod = src.NetworkEmulationMethod
+	}
+	if dst.NetworkInterface == "" {
+		dst.NetworkInterface = src.NetworkInterface
+	}
+	if dst.NetworkFilter == "" {
+		dst.NetworkFilter = src.NetworkFilter
 	}
 }
