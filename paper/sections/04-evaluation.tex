@@ -25,18 +25,24 @@ Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at five,
 difference varied with replica count and disappeared at nine replicas,
 where the EPaxos and Raft medians were statistically indistinguishable.
 
-We report medians rather than means because several repetitions stalled.
-In the scaling family, six Raft repetitions and two EPaxos repetitions
-completed fewer than 20{,}000 requests in the 20\,s phase (against
-27{,}000--115{,}000 for the healthy repetitions). The Raft stalls showed no
-failed requests: the elected leader's snapshot and compaction work delayed
-its heartbeats, the followers repeatedly attempted elections, and the
-cluster processed requests at a low but steady rate. The EPaxos stalls
-showed persistent request timeouts. None of these repetitions was flagged
-by the host-telemetry contamination rule, so they remain in the dataset;
-the means are therefore lower than the medians for both protocols at every
-replica count, and the mean-based EPaxos/Raft ratio (1.29--1.75) overstates
-the difference at seven and nine replicas.
+We report medians rather than means because a small number of repetitions
+stalled. Across the entire dataset (1{,}302 runs), eight repetitions
+completed fewer than 10\,\% of the requests of their configuration's median:
+two Raft runs (0.3\,\% of Raft runs) and six EPaxos runs (1.0\,\% of EPaxos
+runs). Seven of the eight were slow from start to finish with no failed
+requests---the cluster processed requests at a low but steady rate---while
+one EPaxos run (nine replicas) showed persistent request timeouts. The Raft
+stalls coincided with elevated host load (load average 6.9--8.5 against
+3--4 for healthy runs of the same configuration), so they are consistent
+with host-level scheduling interference rather than a Raft-specific fault;
+the EPaxos stalls occurred at both low and high host load, so they are not
+explained by host load alone. None of the eight was flagged by the
+host-telemetry contamination rule, so they remain in the dataset. The means
+are therefore lower than the medians for both protocols, and the mean-based
+EPaxos/Raft ratio (1.29--1.75) overstates the difference at seven and nine
+replicas. We report the stall rate per protocol as a property of the
+evaluated implementations: EPaxos stalled three times more often than Raft
+under the tested conditions.
 
 The same nominal configuration (three replicas, 100\,\% writes, and
 concurrency 32) also occurs independently in several other steady-state
@@ -48,6 +54,13 @@ across these measurements, and the Raft medians by approximately 3\,\%. The
 mean-based 21\,\% Raft band reported in earlier versions of this study was an
 artefact of the stalled repetitions; with medians, the cross-family
 variability is comparable for the two protocols.
+
+For the scaling family, the difference between the implementations is
+significant at three and five replicas (exact Mann-Whitney $U$ test,
+$p<0.001$) but not at seven ($p=0.12$) or nine ($p=0.32$) replicas. The
+95\,\% bootstrap confidence intervals of the medians overlap at seven and
+nine replicas (Table~\ref{tab:scaling}). The EPaxos advantage is therefore
+established only at the smaller cluster sizes.
 
 \input{tables/tab-scaling}
 
