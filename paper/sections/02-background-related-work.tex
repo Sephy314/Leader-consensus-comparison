@@ -1,56 +1,53 @@
 \section{Background and Related Work}
 \label{sec:background}
 
-\subsection{Distributed Consensus}
+\subsection{Leader-Based and Leaderless Consensus}
 
-Distributed consensus is the problem of enabling multiple distributed processes to agree on a common value or sequence of values despite failures and unreliable communication. In a replicated state machine, this agreement is particularly important because replicas must apply the same sequence of operations in order to maintain a consistent state. Without an agreement mechanism, different replicas may independently accept or apply different operations, causing their states to diverge.
+Consensus protocols coordinate replicas so that a replicated state machine
+applies operations in a consistent order despite failures. Protocols differ
+in how they establish this order. Leader-based protocols such as
+Raft~\cite{ongaro2014raft} designate one replica as the leader: client
+requests are directed to it, it appends operations to its log and
+replicates them to followers, and an entry is committed once a quorum has
+acknowledged it. This centralises the write path around a single replica
+and makes leader failure require an election before processing resumes.
+Paxos~\cite{lamport1998parttime} established the foundational agreement
+framework, but its abstract presentation leaves substantial implementation
+decisions to system designers, so systems implementing the same protocol
+family can differ considerably in execution path, storage, and
+communication behaviour.
 
-Consensus therefore provides a fundamental abstraction for building fault-tolerant distributed systems. A consensus protocol must maintain safety, ensuring that correct replicas do not make contradictory decisions, while also providing liveness under the conditions assumed by the protocol. For replicated state machines, these properties are closely connected to the problem of establishing a consistent ordering of state-changing operations.
-
-Consensus protocols can be broadly distinguished by how they coordinate this ordering. One major approach uses a distinguished leader that coordinates the replication of operations, while another distributes the coordination process among multiple replicas without relying on a single permanent ordering authority. Raft represents the former approach, while EPaxos represents the latter.
-
-\subsection{Leader-Based Consensus: From Paxos to Raft}
-
-Paxos is one of the foundational protocols for distributed consensus. It provides a formal approach to reaching agreement among distributed processes in the presence of failures. However, the original presentation of Paxos is highly abstract, and constructing a complete replicated state machine requires additional mechanisms and implementation decisions beyond the core consensus abstraction \cite{lamport1998parttime}.
-
-Raft was designed as an alternative consensus algorithm with understandability as a primary design goal. Rather than presenting consensus as a single abstract problem, Raft decomposes it into relatively independent components, including leader election, log replication, and safety \cite{ongaro2014raft}. This decomposition provides a more explicit structure for reasoning about how a replicated state machine reaches agreement and maintains correctness.
-
-A central feature of Raft is its leader. At any given term, one replica acts as the leader while the remaining replicas act as followers. Client requests that modify replicated state are normally directed to the leader. The leader appends these operations to its log and replicates the corresponding entries to follower replicas. Once an entry has been replicated to a sufficient quorum, it can be committed and subsequently applied to the replicated state machines \cite{ongaro2014raft}.
-
-This architecture simplifies the ordering problem by establishing a clear ordering authority. Rather than requiring replicas to independently determine the ordering of every write, followers primarily replicate the log produced by the leader. The Raft design also defines safety properties and mechanisms for preserving them during log replication and changes in leadership \cite{ongaro2014raft}.
-
-However, the same structure introduces a dependency on the leader. Since the leader is the primary entry point for replicated writes, the write path is structurally concentrated around a single replica. Adding additional follower replicas therefore does not directly provide additional independent write-ordering capacity. Under sufficiently high write workloads, the leader may become a bottleneck.
-
-The leader also introduces a failure mode that does not exist in the same form in a leaderless protocol. When the current leader becomes unavailable, the remaining replicas must elect a new leader before normal leader-based processing can resume. During this transition, new writes cannot be committed through the normal leader-based path. The election process therefore introduces a period in which failure of the ordering authority can affect request processing.
-
-Thus, Raft provides a clear and structured approach to consensus by centralising the ordering of replicated operations around a leader. This design can simplify coordination and reasoning about correctness, while also creating dependence on the processing capacity and availability of the leader.
-
-\subsection{Leaderless Consensus: EPaxos}
-
-Leaderless consensus takes a different approach to distributed ordering. Instead of requiring all operations to pass through a single distinguished leader, multiple replicas can participate in proposing operations and determining their dependencies. EPaxos was designed around this approach, motivated in part by the limitations of leader-based consensus when a single replica becomes a central point for coordinating operations \cite{moraru2013epaxos}.
-
-In EPaxos, a client can send a command to any replica, which can act as the replica responsible for proposing that command. This removes the requirement for a single replica to serve as the universal ordering point and allows operations to be proposed concurrently at different replicas \cite{moraru2013epaxos}.
-
-Rather than imposing a single global ordering on all operations through a leader, EPaxos establishes dependencies between commands. Commands that are independent can potentially be committed without requiring them to be ordered relative to one another, while conflicting commands require their dependency relationships to be established consistently \cite{moraru2013epaxos}.
-
-This design allows EPaxos to exploit command independence. When operations do not conflict, replicas can process proposals concurrently instead of serialising all operations through one leader. The resulting degree of parallelism depends on the workload and, in particular, on the extent to which concurrently proposed commands are independent \cite{moraru2013epaxos}.
-
-Leaderless operation also changes the system's behaviour under replica failures. The failure of a particular replica does not necessarily require the remaining replicas to elect a new global leader before they can continue proposing commands. As long as the protocol can obtain the required quorum and satisfy its communication assumptions, other replicas can continue participating in the consensus process \cite{moraru2013epaxos}.
-
-However, removing the single ordering authority does not eliminate coordination. Because multiple replicas can propose commands concurrently, EPaxos must determine the dependencies between commands and ensure that replicas execute conflicting operations in a compatible order. These mechanisms introduce additional coordination and computation compared with a system in which a single leader directly determines the order of operations \cite{moraru2013epaxos}.
-
-The resulting trade-off is therefore not simply between consistency and availability. Instead, leader-based and leaderless consensus place coordination costs in different parts of the system. Leader-based consensus concentrates ordering around a leader, while leaderless consensus distributes the responsibility for ordering across replicas and relies on dependency management to coordinate concurrent operations.
+Leaderless protocols such as EPaxos~\cite{moraru2013epaxos} allow any
+replica to propose operations and determine dependencies among them.
+Commands that do not conflict can commit without a single global ordering
+point, at the cost of dependency tracking and conflict detection. Removing
+the single ordering authority does not eliminate coordination: replicas
+must agree on dependencies and execute conflicting operations in a
+compatible order. Leaderless operation also changes failure behaviour: the
+loss of one replica does not require electing a replacement leader before
+other replicas continue proposing.
 
 \subsection{Related Work}
 
-Prior research has examined both the correctness and practical performance of consensus protocols. Paxos established a foundational framework for distributed agreement, while Raft provided a more explicitly structured leader-based approach with an emphasis on understandability \cite{lamport1998parttime, ongaro2014raft}. EPaxos subsequently explored a leaderless approach that exploits command independence and dependency relationships to reduce the reliance on a single ordering authority \cite{moraru2013epaxos}.
+Comparative studies of consensus designs have reached different conclusions
+depending on the systems and workloads examined. Howard and Mortier found
+that the choice of implementation and configuration often matters more than
+the protocol family itself when comparing Paxos and Raft
+\cite{howard2020raft}. van Renesse et al. showed that the relative
+performance of Paxos and leaderless replication depends on the workload,
+particularly on command conflict \cite{vanrenesse2015paxos}. Tollman et al.
+re-evaluated EPaxos under geo-replicated workloads and found that the
+original benchmarking approach did not expose the performance impact of
+conflicting commands, with substantially worse tail latency than the
+reported median \cite{tollman2021epaxos}. These results motivate evaluating
+multiple independent implementations of each protocol family under
+controlled conditions, as we do here.
 
-Comparative studies of consensus designs have reached different conclusions depending on the systems and workloads examined. Howard and Mortier compared Paxos and Raft implementations and found that the choice of implementation and configuration often matters more than the protocol family itself \cite{howard2020raft}. van Renesse et al. compared Paxos with leaderless replication and showed that the relative performance of leader-based and leaderless approaches depends on the workload, particularly on the degree of command conflict \cite{vanrenesse2015paxos}. These results motivate evaluating multiple independent implementations of each protocol family, as we do here.
-
-The practical evaluation of EPaxos has also been revisited. Tollman et al. re-evaluated EPaxos under geo-replicated workloads and found that the original benchmarking approach did not fully expose the performance impact of conflicting commands. Their results confirmed the low median commit latency reported for EPaxos in WAN settings while observing substantially worse tail latency, with performance being particularly sensitive to application workload \cite{tollman2021epaxos}. This work illustrates that empirical conclusions about consensus protocols can depend not only on the protocol design itself, but also on workload characteristics and experimental methodology.
-
-Our study follows this experimental perspective while examining a different dimension of consensus behaviour: the effect of centralised versus distributed ordering under a common local experimental environment. We compare two Raft implementations (HashiCorp Raft and etcd Raft) with two EPaxos implementations (the original \texttt{efficient/epaxos} and \texttt{nvanbenschoten/epaxos}) while varying replica count, client concurrency, communication delay, and failure conditions. The comparison therefore evaluates concrete implementations under a controlled workload rather than treating the results as protocol-independent properties of Raft or EPaxos.
-
-The distinction is important when interpreting the measured performance differences. The Raft paper characterises Raft's strong leadership as a central structural feature of the protocol, whereas EPaxos allows commands to be proposed at different replicas and exploits command independence to avoid relying on a single ordering authority \cite{ongaro2014raft, moraru2013epaxos}. Our experiments investigate how these architectural differences manifest in throughput, latency, resource utilisation, and recovery behaviour under the evaluated workload, and how much of the observed difference is attributable to the implementation rather than to the protocol structure.
-
-Accordingly, the results should be understood as evidence about the evaluated protocol implementations and experimental conditions, rather than as universal performance characteristics of all Raft and EPaxos implementations. This distinction is also reflected in the threats to validity discussed in Section~\ref{sec:threats}.
+Our study compares two Raft implementations (HashiCorp Raft and etcd Raft)
+with two EPaxos implementations (the original \texttt{efficient/epaxos} and
+\texttt{nvanbenschoten/epaxos}) while varying replica count, concurrency,
+communication delay, and failure conditions. The comparison therefore
+evaluates concrete implementations under a controlled workload rather than
+treating the results as protocol-independent properties of Raft or EPaxos.
+This distinction is reflected throughout the paper and in the threats to
+validity discussed in Section~\ref{sec:threats}.

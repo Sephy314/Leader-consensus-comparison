@@ -1,51 +1,33 @@
 \begin{abstract}
 
-Leader-based consensus protocols such as Raft route normal write requests
-through an elected leader, whereas leaderless protocols such as EPaxos permit
+Leader-based consensus protocols such as Raft route write requests through
+an elected leader, whereas leaderless protocols such as EPaxos permit
 proposal initiation at multiple replicas. This paper presents an
-implementation-level experimental comparison of these two approaches under a
-common benchmark methodology: the same workload generator, CPU and memory
-allocations, failure injection, and measurement procedures, with ten
-independent repetitions across seven experiment families and replica counts
-from three to nine on a single containerised host.
+implementation-level comparison of these approaches under a common
+benchmark methodology: the same workload generator, allocations, failure
+injection, and metrics, with ten repetitions across seven experiment
+families and replica counts from three to nine on a single containerised
+host.
 
-In the primary implementations, EPaxos achieved higher median throughput than
-Raft at three and five replicas (ratios 1.22 and 1.73, exact Mann-Whitney
-$p<0.001$), but the difference was not significant at seven or nine replicas
-(ratios 1.18 and 0.99, $p=0.12$ and $p=0.32$). Eight of 1{,}302 repetitions
-stalled (two Raft, six EPaxos), so we report medians, which are robust to
-these stalls, rather than means. The EPaxos throughput decline at seven and
-nine replicas is associated with request timeouts: every EPaxos run at those
-sizes except one had requests time out at the 2{,}000\,ms client timeout,
-each occupying a client worker for the full 2\,s, while the successful
-requests themselves completed in 5.4--5.6\,ms, the same as at three replicas.
-Median latency was flat for EPaxos (5.4--5.6\,ms) across replica counts
-while Raft grew from 6.9 to 14.6\,ms. Client concurrency produced a larger
-separation at high concurrency: at concurrency 256, EPaxos measured
-41{,}077\,req/s against 19{,}333\,req/s for Raft, with p50 latency 5.6\,ms
-against 12.1\,ms. The read/write-ratio and conflict-ratio experiments showed
-no clear systematic throughput trend, and EPaxos used approximately
-1.8$\times$ the peak memory of Raft.
+In the primary implementations, EPaxos achieved higher median throughput
+than Raft at three and five replicas (ratios 1.22 and 1.73, exact
+Mann-Whitney $p<0.001$), but no significant difference was detected at
+seven or nine replicas. The EPaxos decline at those sizes is associated
+with request timeouts at the 2{,}000\,ms client timeout, while successful
+requests completed in 5.4--5.6\,ms, the same as at three replicas. Median
+latency was flat for EPaxos across replica counts while Raft grew from 6.9
+to 14.6\,ms, and at concurrency 256 EPaxos measured 41{,}077\,req/s against
+19{,}333\,req/s for Raft. Losing the Raft leader produced availability gaps
+of 1.81--4.74\,s, whereas losing a Raft follower or an EPaxos replica
+produced gaps below 0.1\,s.
 
-Failure experiments revealed a more specific distinction in request-path
-dependence. Losing the Raft leader produced availability gaps of
-1.81--4.74\,s and thousands of failed requests, whereas losing a Raft
-follower or an EPaxos replica produced substantially shorter interruptions in
-the tested three-replica configuration.
-
-To examine implementation sensitivity, the study additionally evaluates two
-Raft implementations and two EPaxos implementations. Their responses to
-application-level one-way communication delay differed substantially: at
-10\,ms of injected cost, throughput decreased by 72--96\,\% across the
-implementations, while the etcd Raft implementation decreased by 94\,\% at
-1\,ms. The delay also changed the ordering: from 1\,ms onward, HashiCorp
-Raft sustained higher throughput than the original EPaxos implementation
-(and, at 5--10\,ms, than nvb EPaxos as well), so the leader-based/leaderless
-ranking is not invariant to communication conditions. A separate correctness
-harness performed 18 deterministic state-convergence tests covering
-concurrency levels of 1, 8, and 32 and the tested replica-failure scenarios;
-all tests passed. The results should therefore be interpreted as controlled
-measurements of the evaluated implementations rather than universal
-properties of Raft or EPaxos.
+Evaluating two Raft and two EPaxos implementations shows that implementation
+choice materially affects performance: under 10\,ms of injected one-way
+delay, throughput fell by 72--96\,\% across implementations, and the etcd
+Raft implementation collapsed by 94\,\% at 1\,ms, reversing the baseline
+ordering. A correctness harness passed 18 deterministic state-convergence
+tests across all implementations. The results are controlled measurements
+of the evaluated implementations, not universal properties of Raft or
+EPaxos.
 
 \end{abstract}
