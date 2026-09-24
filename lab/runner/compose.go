@@ -292,6 +292,12 @@ func buildComposeModel(dir string, cfg labcfg.Run, runID string) (composeModel, 
 		"-timeout-ms", itoa(cfg.TimeoutMS),
 		"-gomaxprocs", itoa(cfg.GOMAXPROCS),
 	}
+	// Correctness mode: a fixed request count with deterministic values.
+	if cfg.Correctness > 0 {
+		m.ClientCmd = append(m.ClientCmd,
+			"-correctness", itoa(cfg.Correctness),
+			"-value-base", i64(cfg.ValueBase))
+	}
 	return m, nil
 }
 

@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"conslab/internal/proto"
@@ -54,6 +55,8 @@ var (
 	hotKeys     = flag.Int("hot-keys", 1, "number of distinct hot keys contended on")
 	timeoutMS   = flag.Int("timeout-ms", 2000, "per-request timeout (ms)")
 	gomaxprocs  = flag.Int("gomaxprocs", 4, "GOMAXPROCS")
+	correctness = flag.Int("correctness", 0, "correctness mode: run exactly this many requests (0 = timed benchmark)")
+	valueBase   = flag.Int64("value-base", 0, "correctness mode: PUT value = value-base + request id (deterministic)")
 )
 
 type reqRecord struct {
@@ -76,6 +79,7 @@ type reqRecord struct {
 	latencyNS   int64
 	ok          bool
 	errMsg      string
+	value       int64 // returned value (correctness mode)
 }
 
 type conn struct {
@@ -119,6 +123,8 @@ type config struct {
 	conflictPct int
 	hotKeys     int
 	timeout     time.Duration
+	correctness int   // 0 = timed benchmark; >0 = run exactly this many requests
+	valueBase   int64 // correctness mode: PUT value = valueBase + request id
 }
 
 func main() {
@@ -142,6 +148,8 @@ func main() {
 		conflictPct: *conflictPct,
 		hotKeys:     *hotKeys,
 		timeout:     time.Duration(*timeoutMS) * time.Millisecond,
+		correctness: *correctness,
+		valueBase:   *valueBase,
 	}
 	if cfg.conflictPct < 0 || cfg.conflictPct > 100 {
 		log.Fatalf("conflict must be in [0,100], got %d", cfg.conflictPct)
@@ -182,21 +190,112 @@ func main() {
 	csvDone := make(chan struct{})
 	go c.writeCSV(csvDone)
 
-	// Warmup phase (no recording).
-	log.Printf("warmup %v", cfg.warmup)
-	c.runPhase(cfg.warmup, false)
+	// Warmup phase (no recording). Skipped in correctness mode: the harness
+	// needs a deterministic request set, and the fixed request count makes a
+	// warmup unnecessary.
+	if cfg.correctness == 0 {
+		log.Printf("warmup %v", cfg.warmup)
+		c.runPhase(cfg.warmup, false)
+	}
 
 	// Measured phase.
 	phaseStart := time.Now()
 	writePhaseMarker(cfg.outDir, phaseStart)
-	log.Printf("measured phase %v starting", cfg.duration)
-	c.runPhase(cfg.duration, true)
+	if cfg.correctness > 0 {
+		log.Printf("correctness phase: %d requests, concurrency %d", cfg.correctness, cfg.concurrency)
+		c.runCorrectness(cfg.correctness)
+	} else {
+		log.Printf("measured phase %v starting", cfg.duration)
+		c.runPhase(cfg.duration, true)
+	}
 	c.wg.Wait()
 	close(c.records)
 	<-csvDone
 
 	writeSummary(cfg, phaseStart)
 	log.Printf("client done")
+}
+
+// runCorrectness issues exactly n requests across the workers, each with a
+// deterministic value (valueBase + request id) and a unique key (the request
+// id), so the harness can detect missing and duplicate applications exactly.
+// The request id is a global atomic counter, so all workers run concurrently.
+func (c *client) runCorrectness(n int) {
+	c.wg.Add(c.cfg.concurrency)
+	var nextID int64
+	for i := 0; i < c.cfg.concurrency; i++ {
+		w := &worker{id: i, c: c, rand: rand.New(rand.NewSource(c.cfg.seed + int64(i)))}
+		if c.cfg.protocol == "raft" {
+			w.target = c.leader
+		} else {
+			w.target = i % len(c.replicas)
+		}
+		w.conn = c.dial(w.target)
+		go w.runCorrectness(n, &nextID)
+	}
+	c.wg.Wait()
+}
+
+// runCorrectness issues the worker's share of the n requests. Each request
+// writes its own key (the request id) with value valueBase + id, so the
+// final state is exactly {id: valueBase+id} for every replied request.
+func (w *worker) runCorrectness(n int, nextID *int64) {
+	defer w.c.wg.Done()
+	for {
+		id := atomic.AddInt64(nextID, 1) - 1
+		if id >= int64(n) {
+			return
+		}
+		key := id
+		val := w.c.cfg.valueBase + id
+		start := time.Now()
+		ok, errMsg, rval := w.doRequestVal(state.PUT, key, val)
+		end := time.Now()
+		w.c.records <- reqRecord{
+			runID: w.c.cfg.runID, protocol: w.c.cfg.protocol, replicas: w.c.cfg.replicas,
+			readPct: 0, writePct: 100,
+			concurrency: w.c.cfg.concurrency, conflictPct: 0,
+			worker: w.id, seq: id,
+			requestID: id,
+			op:        "PUT", key: key, hot: false, target: w.target,
+			startNS: start.UnixNano(), endNS: end.UnixNano(),
+			latencyNS: end.Sub(start).Nanoseconds(), ok: ok, errMsg: errMsg, value: rval,
+		}
+	}
+}
+
+// doRequestVal is doRequest plus the returned value (correctness mode).
+func (w *worker) doRequestVal(op state.Operation, key int64, val int64) (bool, string, int64) {
+	if w.conn == nil {
+		w.reconnect()
+		if w.conn == nil {
+			return false, "no connection", 0
+		}
+	}
+	cmd := state.Command{Op: op, K: state.Key(key), V: state.Value(val)}
+	prop := &proto.Propose{CommandId: int32(w.seq), Command: cmd, Timestamp: time.Now().UnixNano()}
+	if err := w.conn.nc.SetWriteDeadline(time.Now().Add(w.c.cfg.timeout)); err != nil {
+		return false, err.Error(), 0
+	}
+	if err := w.conn.writer.WriteByte(proto.PROPOSE); err != nil {
+		w.reconnect()
+		return false, err.Error(), 0
+	}
+	prop.Marshal(w.conn.writer)
+	if err := w.conn.writer.Flush(); err != nil {
+		w.reconnect()
+		return false, err.Error(), 0
+	}
+	if err := w.conn.nc.SetReadDeadline(time.Now().Add(w.c.cfg.timeout)); err != nil {
+		return false, err.Error(), 0
+	}
+	reply := new(proto.ProposeReplyTS)
+	if err := reply.Unmarshal(w.conn.reader); err != nil {
+		w.reconnect()
+		return false, err.Error(), 0
+	}
+	w.conn.nc.SetReadDeadline(time.Time{})
+	return reply.OK != 0, "", int64(reply.Value)
 }
 
 func (c *client) runPhase(d time.Duration, record bool) {
@@ -444,14 +543,14 @@ func (c *client) writeCSV(done chan struct{}) {
 	w.Write([]string{
 		"run_id", "protocol", "impl", "replicas", "read_pct", "write_pct", "concurrency",
 		"conflict_pct", "worker", "seq", "request_id", "op", "key", "hot", "target",
-		"start_ns", "end_ns", "latency_ns", "ok", "error",
+		"start_ns", "end_ns", "latency_ns", "ok", "error", "value",
 	})
 	for r := range c.records {
 		w.Write([]string{
 			r.runID, r.protocol, c.cfg.impl, itoa(r.replicas), itoa(r.readPct), itoa(r.writePct), itoa(r.concurrency),
 			itoa(r.conflictPct), itoa(r.worker), itoa64(r.seq), itoa64(r.requestID), r.op, itoa64(r.key),
 			boolStr(r.hot), itoa(r.target),
-			itoa64(r.startNS), itoa64(r.endNS), itoa64(r.latencyNS), boolStr(r.ok), r.errMsg,
+			itoa64(r.startNS), itoa64(r.endNS), itoa64(r.latencyNS), boolStr(r.ok), r.errMsg, itoa64(r.value),
 		})
 	}
 	w.Flush()

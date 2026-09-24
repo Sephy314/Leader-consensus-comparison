@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report check-upstream tidy upstream-hash clean clean-results
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results
 
 help:
 	@echo "targets:"
@@ -34,6 +34,7 @@ help:
 	@echo "  compare-datasets  pre-audit vs revised dataset methodology-change report"
 	@echo "  sensitivity      run the implementation-sensitivity experiment (4 implementations)"
 	@echo "  sensitivity-report  analyse the sensitivity dataset into a markdown report"
+	@echo "  correctness     run the correctness-validation harness (deterministic consensus checks)"
 	@echo "  check-upstream  verify vendored wire protocol matches upstream"
 	@echo "  clean-results   delete results/raw, processed, figures and report"
 
@@ -69,6 +70,12 @@ manifest:
 # before the full suite.
 validate:
 	$(RUNNER) validate
+
+# Correctness validation: short deterministic consensus-execution checks per
+# implementation (sequential/concurrent/fault scenarios), independent of the
+# performance benchmark. Results land in results/correctness/.
+correctness: build
+	$(RUNNER) correctness
 
 # Full pipeline: raw -> processed -> figures -> HTML report -> validation
 # -> analysis extras -> paper figures.

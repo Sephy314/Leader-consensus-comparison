@@ -1,43 +1,16 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-This study experimentally compared Raft, a leader-based consensus
-protocol~\cite{ongaro2014raft}, with EPaxos, a leaderless
-protocol~\cite{moraru2013epaxos}. Under the evaluated workloads and
-experimental conditions, Raft provided a comparatively simple and stable
-coordination structure, while EPaxos achieved higher throughput and lower
-latency in several of the evaluated scenarios. The two protocols also
-exhibited different failure behaviour under the tested conditions.
+This paper presented an experimental comparison of Raft and EPaxos as representative leader-based and leaderless consensus approaches. Rather than treating a single throughput measurement as representative of a consensus protocol, the evaluation examined how throughput, latency, scaling behaviour, failure recovery, and resource use changed under controlled variations in workload and system conditions.
 
-The results highlight the costs associated with centralised leadership. In
-particular, Raft exhibited a noticeable availability cost when the leader
-failed, while increasing the replica count was associated with reduced
-throughput for both protocols and a more pronounced increase in latency for
-Raft. These observations show that a leader can provide a clear coordination
-point for replicated writes, but can also become a concentration point for
-processing and a point of disruption when it fails. In contrast, EPaxos
-distributes coordination across replicas, reducing its dependence on a single
-leader at the cost of a more complex consensus mechanism and higher memory
-consumption in the evaluated implementation.
+The results show that the cost of centralised leadership is most visible when the workload places increasing pressure on the request-processing path. In the evaluated Raft configuration, write ordering, replication, and request processing remain centred on the elected leader. Adding replicas therefore does not directly distribute the primary write-processing path, and increasing client concurrency exposes this concentration more strongly. EPaxos, in contrast, permits proposals to be initiated across multiple replicas, which is consistent with its stronger throughput response under high concurrency and its recovery towards write-dominated workloads. These observations describe the behaviour of the evaluated implementations rather than establishing a universal performance advantage for either protocol.
 
-These findings should be interpreted within the scope of the experimental
-setup. The compared systems use different implementations, and
-implementation-level differences may affect the measured performance: Raft is
-represented by the widely deployed HashiCorp Raft
-library~\cite{hashicorpraft}, whereas the EPaxos measurements use the research
-prototype published with the original protocol~\cite{moraru2013epaxos}.
-Furthermore, the experiments were conducted in a controlled local environment
-rather than a geographically distributed production deployment. Therefore, the
-measured performance and failure behaviour should not be interpreted as
-universal characteristics of the protocols in all deployment environments
-(Section~\ref{sec:threats}).
+The read/write-ratio experiment further showed that workload composition has a non-linear relationship with throughput. The stronger curvature observed for EPaxos indicates greater sensitivity to movement between mixed and extreme workload compositions. The conflict experiment, however, did not produce a simple monotonic relationship between conflict ratio and throughput, showing that workload effects cannot always be reduced to a single linear trend.
 
-Overall, the results demonstrate a fundamental trade-off between centralised
-and distributed coordination in distributed consensus: leader-based
-coordination can simplify system behaviour and provide a clear ordering
-structure, while leaderless coordination can reduce dependence on a single
-coordination point and provide advantages under certain workloads and failure
-conditions. The experiments therefore indicate that the practical cost of a
-consensus architecture depends not only on its steady-state throughput, but
-also on how coordination, resource consumption, scaling, and failure recovery
-are distributed across the system.
+Failure behaviour revealed another consequence of centralised leadership. Raft leader failure caused a substantial availability gap because the normal request-processing endpoint was lost and a new leader had to be elected. In contrast, Raft follower failure caused little interruption in the evaluated three-replica configuration, while EPaxos replica failure produced only short interruptions. The election experiments further showed that the measured number of failed election attempts was strongly associated with the observed availability gap. These results demonstrate that steady-state throughput alone does not capture the operational cost of a consensus design.
+
+The implementation-sensitivity experiments provide an important qualification to all of these comparisons. Changes to persistence, request processing, adapter behaviour, and communication conditions substantially affected measured performance without changing the underlying consensus algorithm. Implementations of the same protocol family also showed markedly different sensitivity to injected communication latency. Consequently, absolute throughput and latency should be understood as properties of a particular implementation and experimental environment rather than as intrinsic constants of Raft or EPaxos.
+
+Overall, the experiments indicate that evaluating consensus systems requires considering more than peak steady-state throughput. The distribution of request-processing work, the ability to use additional replicas, workload sensitivity, failure dependencies, and implementation-level costs all contribute to the practical behaviour of a consensus system. In the evaluated environment, EPaxos exposed the benefits and costs of distributed proposal processing, while Raft exposed the simplicity and corresponding concentration of a leader-centred request path.
+
+The study is limited by its single-host containerised environment, tested cluster sizes, workload model, and use of one primary implementation of each protocol. The results should therefore be interpreted as controlled measurements of the evaluated systems rather than universal claims about production deployments. Nevertheless, the experimental methodology provides a basis for reproducing the comparison and for extending it to additional implementations, larger clusters, multi-host environments, and more realistic network conditions. Such extensions would help further separate protocol-level effects from implementation-specific behaviour.

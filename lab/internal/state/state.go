@@ -50,6 +50,19 @@ func InitState() *State {
 	return &State{new(sync.Mutex), make(map[Key]Value)}
 }
 
+// Snapshot returns a copy of the store, safe to read concurrently with
+// Execute. It is the correctness harness's observation surface; the
+// benchmark itself never calls it.
+func (s *State) Snapshot() map[Key]Value {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	out := make(map[Key]Value, len(s.Store))
+	for k, v := range s.Store {
+		out[k] = v
+	}
+	return out
+}
+
 func Conflict(gamma *Command, delta *Command) bool {
 	if gamma.K == delta.K {
 		if gamma.Op == PUT || delta.Op == PUT {
@@ -79,8 +92,8 @@ func (c *Command) Execute(st *State) Value {
 
 	//var key, value [8]byte
 
-	//    st.mutex.Lock()
-	//    defer st.mutex.Unlock()
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
 
 	switch c.Op {
 	case PUT:

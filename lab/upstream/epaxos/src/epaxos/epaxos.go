@@ -74,6 +74,23 @@ type Replica struct {
 	latestCPInstance      int32
 	clientMutex           *sync.Mutex // for synchronizing when sending replies to clients from multiple go-routines
 	instancesToRecover    chan *instanceId
+
+	// appliedN counts executed client commands. It is the correctness
+	// harness's duplicate-detection surface (read-only, never used by the
+	// benchmark itself).
+	appliedN int64
+}
+
+// GetState returns the state-machine snapshot and the executed-command count
+// for the correctness harness. Read-only; never used by the benchmark.
+func (r *Replica) GetState(args *genericsmrproto.GetStateArgs, reply *genericsmrproto.GetStateReply) error {
+	snap := r.State.Snapshot()
+	reply.Store = make(map[int64]int64, len(snap))
+	for k, v := range snap {
+		reply.Store[int64(k)] = int64(v)
+	}
+	reply.Applied = r.appliedN
+	return nil
 }
 
 type Instance struct {
@@ -144,7 +161,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		0,
 		-1,
 		new(sync.Mutex),
-		make(chan *instanceId, genericsmr.CHAN_BUFFER_SIZE)}
+		make(chan *instanceId, genericsmr.CHAN_BUFFER_SIZE),
+		0} // appliedN
 
 	r.Beacon = beacon
 	r.Durable = durable

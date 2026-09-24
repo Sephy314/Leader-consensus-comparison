@@ -100,6 +100,13 @@ type Run struct {
 	// CommJitterPct is the jitter as a percentage of CommCostMS: each message
 	// additionally waits a uniform random delay in [0, cost*jitter/100].
 	CommJitterPct int `json:"comm_jitter_pct"`
+
+	// Correctness is the correctness-harness mode: run exactly this many
+	// requests (0 = the timed benchmark). ValueBase makes PUT values
+	// deterministic (valueBase + request id) so the harness can detect
+	// missing and duplicate applications.
+	Correctness int   `json:"correctness"`
+	ValueBase   int64 `json:"value_base"`
 }
 
 // Implementation names. The two primary names are the implementations the

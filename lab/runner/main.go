@@ -10,6 +10,8 @@
 //	b	validate run the lightweight methodology validation (randomized-order
 //	         invariants) before the full suite
 //	manifest rebuild results/execution-manifest.json from the completed runs
+//	correctness run the correctness-validation harness (short deterministic
+//	         consensus-execution checks per implementation)
 package main
 
 import (
@@ -36,6 +38,8 @@ func main() {
 		err = cmdValidate(os.Args[2:])
 	case "manifest":
 		err = cmdManifest(os.Args[2:])
+	case "correctness":
+		err = cmdCorrectness(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -60,5 +64,6 @@ commands:
   smoke   [--config configs/smoke.json]
   validate
   manifest [--schedule-seed <n>] [--root results/raw]
+  correctness [--only <impl>] [--requests <n>] [--results-base <dir>]
 `)
 }

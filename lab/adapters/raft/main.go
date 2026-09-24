@@ -64,8 +64,9 @@ var (
 // (state.Command.Execute). Reads (GET) are routed through consensus exactly
 // like writes; there is no Raft-only local-read optimization.
 type fsm struct {
-	mu sync.Mutex
-	st *state.State
+	mu      sync.Mutex
+	st      *state.State
+	applied int64 // client commands applied (non-empty log entries)
 }
 
 func newFSM() *fsm { return &fsm{st: state.InitState()} }
@@ -77,6 +78,7 @@ func (f *fsm) Apply(l *raft.Log) interface{} {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.applied++
 	return cmd.Execute(f.st)
 }
 
@@ -140,9 +142,23 @@ type Replica struct {
 	raft  *raft.Raft
 	peers []raft.Server // ordered like the master's NodeList
 	iso   *isolatingTransport
+	fsm   *fsm
 }
 
 func (r *Replica) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
+
+// GetState returns the state-machine snapshot and the applied-command count
+// for the correctness harness. Read-only; never used by the benchmark.
+func (r *Replica) GetState(args *proto.GetStateArgs, reply *proto.GetStateReply) error {
+	r.fsm.mu.Lock()
+	defer r.fsm.mu.Unlock()
+	reply.Store = make(map[int64]int64, len(r.fsm.st.Store))
+	for k, v := range r.fsm.st.Store {
+		reply.Store[int64(k)] = int64(v)
+	}
+	reply.Applied = r.fsm.applied
+	return nil
+}
 
 // BeTheLeader is a no-op: HashiCorp Raft decides leadership, never this lab.
 func (r *Replica) BeTheLeader(args *proto.BeTheLeaderArgs, reply *proto.BeTheLeaderReply) error {
@@ -506,14 +522,15 @@ func main() {
 		log.Fatalf("resolving own advertise address: %v", err)
 	}
 
-	r, iso, err := setupRaft(*dir, localAddr, advertise, peers, newFSM())
+	fsm := newFSM()
+	r, iso, err := setupRaft(*dir, localAddr, advertise, peers, fsm)
 	if err != nil {
 		log.Fatalf("raft setup: %v", err)
 	}
 	iso.commCostMS = *commCostMS
 	iso.commJitterPct = *commJitter
 
-	rep := &Replica{id: replicaID, raft: r, peers: peers, iso: iso}
+	rep := &Replica{id: replicaID, raft: r, peers: peers, iso: iso, fsm: fsm}
 	rpc.Register(rep)
 	rpc.HandleHTTP()
 	go func() {

@@ -422,18 +422,31 @@ func (t *transport) droppedVotes() int64    { return t.droppedV.Load() }
 // Replica is the RPC surface exposed to the lab's raft master and to the
 // runner (clientPort+1000), mirroring the HashiCorp adapter's surface.
 type Replica struct {
-	myIdx   int
-	myID    uint64 // raft id (nodeList index + 1)
-	node    raft.Node
-	ms      *raft.MemoryStorage
-	tr      *transport
-	pend    *pending
-	st      *state.State
-	lead    atomic.Int64
-	applied atomic.Uint64 // last applied index, published for the append thread's compaction
+	myIdx    int
+	myID     uint64 // raft id (nodeList index + 1)
+	node     raft.Node
+	ms       *raft.MemoryStorage
+	tr       *transport
+	pend     *pending
+	st       *state.State
+	lead     atomic.Int64
+	applied  atomic.Uint64 // last applied index, published for the append thread's compaction
+	appliedN atomic.Int64  // client commands applied (non-empty EntryNormal), for the correctness harness
 }
 
 func (r *Replica) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
+
+// GetState returns the state-machine snapshot and the applied-command count
+// for the correctness harness. Read-only; never used by the benchmark.
+func (r *Replica) GetState(args *proto.GetStateArgs, reply *proto.GetStateReply) error {
+	snap := r.st.Snapshot()
+	reply.Store = make(map[int64]int64, len(snap))
+	for k, v := range snap {
+		reply.Store[int64(k)] = int64(v)
+	}
+	reply.Applied = r.appliedN.Load()
+	return nil
+}
 
 // BeTheLeader is a no-op: etcd/raft decides leadership, never this lab.
 func (r *Replica) BeTheLeader(args *proto.BeTheLeaderArgs, reply *proto.BeTheLeaderReply) error {
@@ -677,6 +690,7 @@ func (r *Replica) applyThread(node raft.Node, ch <-chan *pb.Message) {
 					continue
 				}
 				r.pend.deliver(reqID, cmd.Execute(r.st))
+				r.appliedN.Add(1)
 			case pb.EntryType_EntryConfChange:
 				var cc pb.ConfChange
 				if err := gproto.Unmarshal(e.Data, &cc); err == nil {

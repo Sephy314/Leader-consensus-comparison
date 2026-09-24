@@ -77,3 +77,13 @@ type BeTheLeaderArgs struct {
 
 type BeTheLeaderReply struct {
 }
+
+// GetState is the correctness-harness observation surface: a read-only
+// snapshot of the state machine and the number of executed commands.
+type GetStateArgs struct {
+}
+
+type GetStateReply struct {
+	Store   map[int64]int64 // key -> value
+	Applied int64           // number of executed client commands
+}

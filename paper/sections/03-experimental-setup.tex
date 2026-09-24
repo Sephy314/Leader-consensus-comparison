@@ -157,6 +157,34 @@ replica 0 is killed and the client moves to the next replica. Recovery
 timing is reconstructed from request timestamps and the approximately
 200\,ms monitor resolution, and is therefore approximate.
 
+\subsection{Correctness Validation}
+
+The experiment families above measure performance, not correctness. To
+verify that each implementation performs consistent consensus execution,
+the lab includes a separate correctness harness (\texttt{runner
+correctness}) that reuses the same Docker Compose infrastructure but runs
+short, deterministic tests. The harness is independent of the performance
+benchmark: it never runs in a measured phase, and its observation surface
+is read-only.
+
+The client's correctness mode issues a fixed number of requests (2{,}000)
+instead of running for a fixed duration. Each request writes its own key
+(the request id) with a deterministic value (a fixed base plus the request
+id), so the expected final state is exactly one entry per replied request
+and a failing test reproduces exactly. Every replica exposes a read-only
+\texttt{GetState} RPC returning a snapshot of its state machine and the
+number of commands it has applied; the benchmark never calls it. The
+harness compares replicas on this state, never on their internal log
+representation, so the EPaxos dependency-ordering model is not assumed to
+match Raft's.
+
+Each implementation is tested at concurrency 1, 8, and 32, and under the
+fault scenarios of the failure family: a Raft follower and a Raft leader
+are killed and restarted mid-run, and an EPaxos replica is killed and
+restarted mid-run. Raft replicas persist their log, so a restarted Raft
+replica must recover the committed state; EPaxos replicas keep state in
+memory, so a restarted EPaxos replica is only required to be alive.
+
 Host-level telemetry (load average and available memory, sampled at
 200\,ms) is recorded for every run. Host suspension, scheduling gaps, CPU
 starvation, and clock jumps are detected and recorded per run. Anomalous

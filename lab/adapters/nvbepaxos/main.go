@@ -1,4 +1,4 @@
-// Command nvbepaxos-server is the lab's adapter around
+// Command nvbepaxos-Server is the lab's adapter around
 // github.com/nvanbenschoten/epaxos (EPaxos B).
 //
 // It does NOT implement consensus and it does NOT re-implement the benchmark.
@@ -146,12 +146,14 @@ func keyBytes(k state.Key) []byte {
 
 // ---- replica ----
 
-type server struct {
+type Server struct {
 	id   int
 	node epaxos.Node
 	tr   *transport.EPaxosServer
 	st   *state.State
 	pend *pending
+
+	appliedN atomic.Int64 // client commands applied, for the correctness harness
 
 	peerMu    sync.Mutex
 	peers     map[epaxospb.ReplicaID]*transport.EPaxosClient
@@ -172,13 +174,25 @@ type server struct {
 
 // Ping, BeTheLeader, LeaderId and Stats form the admin RPC surface the runner
 // and the EPaxos master use. EPaxos is leaderless, so LeaderId is always -1.
-func (s *server) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
+func (s *Server) Ping(args *proto.PingArgs, reply *proto.PingReply) error { return nil }
 
-func (s *server) BeTheLeader(args *proto.BeTheLeaderArgs, reply *proto.BeTheLeaderReply) error {
+// GetState returns the state-machine snapshot and the applied-command count
+// for the correctness harness. Read-only; never used by the benchmark.
+func (s *Server) GetState(args *proto.GetStateArgs, reply *proto.GetStateReply) error {
+	snap := s.st.Snapshot()
+	reply.Store = make(map[int64]int64, len(snap))
+	for k, v := range snap {
+		reply.Store[int64(k)] = int64(v)
+	}
+	reply.Applied = s.appliedN.Load()
 	return nil
 }
 
-func (s *server) LeaderId(args *proto.LeaderIdArgs, reply *proto.LeaderIdReply) error {
+func (s *Server) BeTheLeader(args *proto.BeTheLeaderArgs, reply *proto.BeTheLeaderReply) error {
+	return nil
+}
+
+func (s *Server) LeaderId(args *proto.LeaderIdArgs, reply *proto.LeaderIdReply) error {
 	reply.LeaderId = -1
 	return nil
 }
@@ -187,14 +201,14 @@ func (s *server) LeaderId(args *proto.LeaderIdArgs, reply *proto.LeaderIdReply) 
 // counters (those reported for EPaxos A are instrumentation added to that
 // codebase), so the counters are zero and the sensitivity analysis does not
 // use them.
-func (s *server) Stats(args *proto.StatsArgs, reply *proto.StatsReply) error {
+func (s *Server) Stats(args *proto.StatsArgs, reply *proto.StatsReply) error {
 	reply.FastPath = 0
 	reply.SlowPath = 0
 	reply.Conflicted = 0
 	return nil
 }
 
-func (s *server) run(ctx context.Context) {
+func (s *Server) run(ctx context.Context) {
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 	for {
@@ -216,7 +230,7 @@ func (s *server) run(ctx context.Context) {
 
 // execute applies executed commands to the benchmark state machine and
 // delivers each result to the client request that produced it.
-func (s *server) execute(cmds []epaxospb.Command) {
+func (s *Server) execute(cmds []epaxospb.Command) {
 	for _, c := range cmds {
 		if len(c.Data) == 0 {
 			continue
@@ -226,12 +240,13 @@ func (s *server) execute(cmds []epaxospb.Command) {
 			continue
 		}
 		s.pend.deliver(c.GetID(), cmd.Execute(s.st))
+		s.appliedN.Add(1)
 	}
 }
 
 // enqueue appends outbound messages to the sender's queue. It never blocks on
 // the network, so the Ready loop always returns to draining inbound messages.
-func (s *server) enqueue(msgs []epaxospb.Message) {
+func (s *Server) enqueue(msgs []epaxospb.Message) {
 	if len(msgs) == 0 {
 		return
 	}
@@ -255,7 +270,7 @@ const outboxWarn = 100000
 
 // sender drains the outbox in order. It is the only goroutine performing
 // outbound network I/O, which preserves per-peer message ordering.
-func (s *server) sender(ctx context.Context) {
+func (s *Server) sender(ctx context.Context) {
 	for {
 		select {
 		case <-s.outWake:
@@ -294,7 +309,7 @@ func commDelay(costMS, jitterPct int) time.Duration {
 	return base + time.Duration(rand.Int63n(int64(maxJitter)+1))
 }
 
-func (s *server) sendBatch(ctx context.Context, msgs []epaxospb.Message) {
+func (s *Server) sendBatch(ctx context.Context, msgs []epaxospb.Message) {
 	byPeer := make(map[epaxospb.ReplicaID][]epaxospb.Message)
 	for _, m := range msgs {
 		if int(m.GetTo()) == s.id {
@@ -311,7 +326,7 @@ func (s *server) sendBatch(ctx context.Context, msgs []epaxospb.Message) {
 
 // sendTo delivers a batch of messages to one peer over one stream, matching
 // the library's own transport usage.
-func (s *server) sendTo(ctx context.Context, to epaxospb.ReplicaID, msgs []epaxospb.Message) error {
+func (s *Server) sendTo(ctx context.Context, to epaxospb.ReplicaID, msgs []epaxospb.Message) error {
 	c, err := s.peer(ctx, to)
 	if err != nil {
 		return err
@@ -334,7 +349,7 @@ func (s *server) sendTo(ctx context.Context, to epaxospb.ReplicaID, msgs []epaxo
 	return nil
 }
 
-func (s *server) peer(ctx context.Context, to epaxospb.ReplicaID) (*transport.EPaxosClient, error) {
+func (s *Server) peer(ctx context.Context, to epaxospb.ReplicaID) (*transport.EPaxosClient, error) {
 	s.peerMu.Lock()
 	if c := s.peers[to]; c != nil {
 		s.peerMu.Unlock()
@@ -356,7 +371,7 @@ func (s *server) peer(ctx context.Context, to epaxospb.ReplicaID) (*transport.EP
 	return c, nil
 }
 
-func (s *server) dropPeer(to epaxospb.ReplicaID) {
+func (s *Server) dropPeer(to epaxospb.ReplicaID) {
 	s.peerMu.Lock()
 	if c := s.peers[to]; c != nil {
 		c.Close()
@@ -367,7 +382,7 @@ func (s *server) dropPeer(to epaxospb.ReplicaID) {
 
 // ---- benchmark client protocol ----
 
-func (s *server) handlePropose(prop *proto.Propose, w *bufio.Writer) {
+func (s *Server) handlePropose(prop *proto.Propose, w *bufio.Writer) {
 	reply := &proto.ProposeReplyTS{CommandId: prop.CommandId, Timestamp: time.Now().UnixNano()}
 
 	cmdID := s.pend.next()
@@ -404,7 +419,7 @@ func (s *server) handlePropose(prop *proto.Propose, w *bufio.Writer) {
 	w.Flush()
 }
 
-func (s *server) serveClients() {
+func (s *Server) serveClients() {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Fatalf("client listener: %v", err)
@@ -419,7 +434,7 @@ func (s *server) serveClients() {
 	}
 }
 
-func (s *server) handleClient(conn net.Conn) {
+func (s *Server) handleClient(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -479,7 +494,7 @@ func main() {
 	// The library's peer transport is a separate port from the benchmark
 	// client protocol, so peer addresses are derived from the master's node
 	// list (which carries the client port) by substituting the peer port.
-	s := &server{
+	s := &Server{
 		id:        replicaID,
 		st:        state.InitState(),
 		pend:      newPending(replicaID),
