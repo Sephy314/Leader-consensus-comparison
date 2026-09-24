@@ -8,8 +8,17 @@ Research repository.
 
 > Status: the experiment matrix has been run and processed, the correctness
 > harness passes for all four implementations, and the paper is written from
-> abstract to conclusion (13 pages). The released PDF lives in
-> `paper/release/`; `paper/` rebuilds it from source.
+> abstract to conclusion. The released PDF lives in `paper/release/`;
+> `paper/` rebuilds it from source.
+>
+> Three further families were added after that dataset and write to their own
+> result subtrees without touching it: **persistence matching** (vary only how
+> each implementation persists consensus state), **clean network delay**
+> (applied at the OS level with `tc/netem`, outside the implementations) and
+> **conflict validation** (does the configured conflict fraction actually
+> create protocol-level contention?). See *Experiments after the recorded
+> suite* below. The headline numbers below are the **recorded** dataset and
+> do not yet include these runs.
 
 This repository contains a reproducible benchmark infrastructure (the
 **Consensus Lab**) for comparing the write path of two consensus protocols in
@@ -53,6 +62,31 @@ replica count. The paper in `paper/` reports the full evaluation.
 | 7 | 2,590 | 3,053 | 1.18× | 12.0 | 5.4 |
 | 9 | 2,113 | 2,094 | 0.99× | 14.6 | 5.5 |
 
+Three properties of the recorded setup bound how these numbers may be read.
+They are properties of the configuration, not new measurements:
+
+- **The two protocol families are not persistence-matched.** The recorded
+  Raft implementations persist consensus state (BoltDB for HashiCorp, a
+  fsynced write-ahead log for etcd) while both recorded EPaxos
+  implementations keep it in memory. The measured throughput difference
+  therefore combines consensus structure with a storage path difference. The
+  persistence-matching family varies persistence *within* each implementation
+  to separate the two.
+- **The communication-cost points were injected inside the implementations.**
+  The archived `commcost` family applied a per-message sleep, plus jitter, in
+  each implementation's own send path, so the injection point differs per
+  implementation and is part of what those points measured. The clean
+  network-delay family applies the delay outside the implementations
+  (`tc/netem` in each replica's network namespace, no jitter) and records
+  kernel-level evidence that it was installed.
+- **The large replica counts are not per-replica CPU saturated.**
+  `make resource-contention` reports the busiest replica reaching 38 % (7
+  replicas) and 35 % (9 replicas) of its own 2-CPU quota, with host telemetry
+  flagging 0 of 20 runs at each size. The requested quota is oversubscribed on
+  paper (1.75x at 9 replicas), but the recorded telemetry does not support
+  attributing these configurations' results to local CPU contention, so that
+  cause must not be asserted.
+
 - Throughput fell as replicas were added for **both** protocols (3 → 9
   replicas: −60 % EPaxos, −51 % Raft), so the scaling penalty is not specific
   to leader-based ordering. The EPaxos advantage disappeared at 9 replicas
@@ -83,12 +117,22 @@ replica count. The paper in `paper/` reports the full evaluation.
 - EPaxos at seven and nine replicas showed request timeouts (30–250 per run
   at the 2,000 ms client timeout) that account for its reduced throughput via
   the closed-loop concurrency accounting; the successful requests themselves
-  completed in 5.4–5.6 ms, the same as at three replicas.
-- Under added one-way communication cost the four implementations differed
-  sharply: at 10 ms, HashiCorp Raft lost 72 % of its throughput, nvb EPaxos
-  81 %, the original EPaxos 96 %, and etcd Raft collapsed by 94 % at 1 ms
-  already. Jitter at a 5 ms cost reduced throughput by 24–36 % at 100 %
-  jitter, a much weaker effect than the cost itself.
+  completed in 5.4–5.6 ms, the same as at three replicas. Per-replica CPU
+  telemetry does not show saturation at these sizes (see the caveats above).
+- The conflict-ratio sweep is flat in aggregate throughput, which does **not**
+  mean the workload created no contention: the EPaxos fast/slow-path counters
+  recorded per run show that a large conflict fraction does push commands onto
+  the slow path. The conflict-validation family re-runs the sweep and reports
+  the *realized* hot-key fraction and those counters, so the two questions
+  ("did throughput move?" and "did contention happen?") are answered
+  separately.
+- The communication-cost figures below come from the **legacy** in-adapter
+  injection and are retained as an archived dataset: at 10 ms, HashiCorp Raft
+  lost 72 % of its throughput, nvb EPaxos 81 %, the original EPaxos 96 %, and
+  etcd Raft collapsed by 94 % at 1 ms already. Jitter at a 5 ms cost reduced
+  throughput by 24–36 % at 100 % jitter. Because the delay was applied inside
+  each implementation's send path, these numbers rank injection points as well
+  as implementations; they are not pooled with the clean network-delay family.
 - A correctness harness (18 deterministic tests per implementation family:
   concurrency 1/8/32 plus leader, follower, and replica failures) passes for
   all four implementations: every replied request is applied exactly once,
@@ -106,7 +150,11 @@ universal properties of leader-based or leaderless consensus.
 | Experiment matrix | run: 129 configurations, seven families, 10 repetitions each |
 | Measured runs | 1,302 raw runs, 1,290 included; 12 excluded by the documented host-telemetry contamination rule and replaced |
 | Implementation sensitivity | 4 implementations (HashiCorp/etcd Raft, original/nvb EPaxos); sensitivity + commcost datasets in `lab/results/sensitivity/`, `lab/results/commcost/` |
+| Persistence matching | configured (`configs/persistence.json`); results land in `lab/results/persistence_control/` — durable vs in-memory within each implementation; nvb offers no durable mode and that cell is reported as a gap |
+| Clean network delay | configured (`configs/networkdelay.json`); results land in `lab/results/network_delay_clean/` — 0/1/3/5/10 ms, no jitter, applied with `tc/netem` outside the implementations |
+| Conflict validation | configured (`configs/conflictvalidation.json`); results land in `lab/results/conflict_validation/` — configured hot-key fraction × number of hot keys, with the realized fraction and the EPaxos counters |
 | Correctness validation | 18/18 tests pass across all 4 implementations; `lab/results/correctness/correctness.json` |
+| Configuration reports | `lab/results/failure-configuration.md` (failure-detection budget beside every measured availability gap), `lab/results/resource-contention.md` (per-replica CPU saturation at each replica count) |
 | Processed measurements | `lab/results/processed/` (per-run metrics, per-configuration summaries, failure and run indexes) |
 | Figures and report | `lab/results/figures/`, `lab/results/report/index.html` |
 | Paper | `paper/release/The-Effects-of-Leadership-in-Distributed-Consensus.pdf`; sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
@@ -147,7 +195,9 @@ consensus-comparison/
 │   ├── monitor/            # host-side per-container resource sampler
 │   ├── runner/             # experiment runner: build, run, matrix, smoke, correctness
 │   ├── report/             # processing + figure + HTML report generation (Python)
-│   ├── configs/            # explicit experiment configurations (matrix.json, smoke.json, sensitivity.json, commcost.json)
+│   ├── configs/            # explicit experiment configurations (matrix, smoke,
+│   │                       # sensitivity, commcost, persistence, networkdelay,
+│   │                       # conflictvalidation)
 │   ├── docker/             # lab runtime image
 │   ├── internal/           # shared packages (wire protocol, state, config)
 │   └── results/            # raw/processed/figures/report (generated)
@@ -180,6 +230,50 @@ Then open `lab/results/report/index.html` in a browser. The report is fully
 self-contained (charts are embedded as base64 PNG data) and works without an
 internet connection.
 
+## Experiments after the recorded suite
+
+Three families sit on top of the recorded dataset. Each has its own
+configuration and its own results subtree (`--results-base`), so the recorded
+dataset is never read or written by them, and each has a `-dry-run` target
+that expands and validates the configuration and prints the run IDs without
+executing anything. `lab/docs/experiment-design.md` §6a documents the design.
+
+```sh
+make persistence-dry-run     # expand + validate, run nothing
+make persistence             # durable vs in-memory, 4 implementations, r3+r5
+make network-delay           # OS-level tc/netem delay, no jitter
+make conflict-validation     # configured vs realized conflict
+
+make persistence-report      # each family reports from its own subtree
+make network-delay-report
+make conflict-validation-report
+
+make failure-configuration   # configuration reports over the recorded data
+make resource-contention
+```
+
+- **Persistence matching** varies *only* how each implementation persists
+  consensus state, and uses only modes the implementation provides: HashiCorp
+  `raft-boltdb` vs `raft.NewInmemStore`, etcd write-ahead log vs the adapter's
+  `-no-wal`, efficient/epaxos in-memory vs the upstream `-durable`. The nvb
+  library exposes only an in-memory `Storage`, so no durable mode is offered
+  for it; that cell is skipped during expansion and reported as a gap rather
+  than filled with a mechanism the lab would have had to write.
+- **Clean network delay** applies a fixed one-way latency (0/1/3/5/10 ms, no
+  jitter) with `tc/netem` inside each replica's network namespace, scoped to
+  inter-replica traffic so client-observed latency is not polluted. No adapter
+  sleeps and no consensus source is modified. The runner verifies the
+  installed qdisc against the kernel and stores the commands, their output and
+  that verification in the run's `network.json`; a run whose emulation did not
+  apply fails instead of being recorded as a delay measurement.
+- **Conflict validation** sweeps both the configured hot-key fraction and the
+  number of distinct hot keys, and reports the *realized* hot-key fraction
+  (exact, from the per-request `hot` flag, since hot and cold key ranges are
+  disjoint) alongside the EPaxos conflict/fast-path/slow-path counters where
+  the implementation provides them — reported as unavailable, never as zero,
+  for nvb. Conflict remains entirely client-side: nothing is injected into the
+  EPaxos implementation.
+
 ## Manual execution
 
 ### Running a single experiment
@@ -196,6 +290,10 @@ make run CFG=configs/matrix.json REP=1
 make matrix       # full experiment matrix (seven families: workload, scaling,
                   # conflict, concurrency, election, failure, communication cost)
 ```
+
+Those seven families are the recorded dataset. The three families added after
+it are run separately and write elsewhere — see *Experiments after the recorded
+suite* above.
 
 ### Correctness validation
 
@@ -237,6 +335,26 @@ experiments are shown as "Experiment not yet run." instead of failing.
   approximate (batch-granularity), not a precise availability measurement.
 - **Local bridge networking**: no WAN latency; wide-area behaviour is not
   captured.
+- **Unmatched persistence in the recorded suite**: the recorded Raft
+  implementations persist state while the recorded EPaxos implementations do
+  not, so the recorded throughput comparison combines consensus structure with
+  a storage-path difference. The persistence-matching family addresses this;
+  until it is reported, the recorded difference must not be read as a
+  protocol-level effect.
+- **Legacy in-adapter delay injection**: the archived `commcost` family
+  injected delay (and jitter) inside each implementation's send path, so its
+  ranking reflects the injection point as well as the implementation. Those
+  results are kept as a separate dataset and are not pooled with the clean
+  OS-level network-delay family.
+- **Single-implementation-per-family readings are configuration-bound**: a
+  measured availability gap is bounded by the configured failure-detection
+  budget (heartbeat 1000 ms, election 2000 ms) and, for the election runs, by
+  the injected isolation window. Gaps are reported as observed under that
+  configuration, not as generic recovery times.
+- **Resource contention is not assumed**: where the large replica counts are
+  discussed, whether local CPU contention actually bounded the run is decided
+  from the recorded per-replica telemetry (`make resource-contention`), not
+  from the requested CPU quota.
 - **Implementation-specific behaviour**: results reflect the upstream
   `efficient/epaxos`, `nvanbenschoten/epaxos`, `hashicorp/raft`, and
   `go.etcd.io/raft` implementations, not the protocols in general. The
