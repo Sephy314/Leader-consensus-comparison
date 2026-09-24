@@ -17,65 +17,73 @@ both evaluated implementations. At three replicas, the measured median was
 5{,}292\,req/s for EPaxos and 4{,}351\,req/s for Raft. At five replicas,
 the medians were 5{,}443 and 3{,}150\,req/s, respectively, while at nine
 replicas they were 2{,}094 and 2{,}113\,req/s (Table~\ref{tab:scaling}).
-
 Relative to the three-replica measurement within this experiment family,
 the nine-replica median was 60\,\% lower for EPaxos and 51\,\% lower for
-Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at five,
-1.18 at seven, and 0.99 at nine replicas. Thus, the measured throughput
-difference varied with replica count and disappeared at nine replicas,
-where no statistically significant difference was detected between the two
-implementations.
+Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at
+five, 1.18 at seven, and 0.99 at nine replicas. Thus, the measured
+throughput difference varied with replica count, and no statistically
+significant difference was detected at nine replicas.
 
 We report medians rather than means because a small number of repetitions
 stalled. Across the entire dataset (1{,}302 runs), eight repetitions
-completed fewer than 10\,\% of the requests of their configuration's median:
-two Raft runs (0.3\,\% of Raft runs) and six EPaxos runs (1.0\,\% of EPaxos
-runs). Seven of the eight were slow from start to finish with no failed
-requests---the cluster processed requests at a low but steady rate---while
-one EPaxos run (nine replicas) showed persistent request timeouts. The Raft
-stalls coincided with elevated host load (load average 6.9--8.5 against
-3--4 for healthy runs of the same configuration), so they are consistent
-with host-level scheduling interference rather than a Raft-specific fault;
-the EPaxos stalls occurred at both low and high host load, so they are not
-explained by host load alone. None of the eight was flagged by the
-host-telemetry contamination rule, so they remain in the dataset. The means
-are therefore lower than the medians for both protocols, and the mean-based
-EPaxos/Raft ratio (1.29--1.75) overstates the difference at seven and nine
-replicas. The observed stall counts (2 of 690 Raft runs, 6 of 612 EPaxos
-runs) are not significantly different (Fisher's exact test, $p=0.16$), so
-we report them as observed frequencies rather than as a protocol-level
-difference.
+completed fewer than 10\,\% of the requests of their configuration's
+median: two Raft runs (0.3\,\% of Raft runs) and six EPaxos runs (1.0\,\%
+of EPaxos runs). Seven of the eight were slow from start to finish with no
+failed requests, while one EPaxos run at nine replicas showed persistent
+request timeouts. The two Raft stalls coincided with elevated host load
+(load average 6.9--8.5 against 3--4 for healthy runs of the same
+configuration). The six EPaxos stalls occurred at both low and high host
+load. None of the eight runs was flagged by the host-telemetry
+contamination rule, so they remain in the dataset. The means are therefore
+lower than the medians for both implementations, and the mean-based
+EPaxos/Raft ratio (1.29--1.75) is larger than the corresponding median
+ratio at seven and nine replicas. The observed stall counts (2 of 690
+Raft runs and 6 of 612 EPaxos runs) were not significantly different
+(Fisher's exact test, $p=0.16$).
 
-A second, more common anomaly affects EPaxos at seven and nine replicas:
-request timeouts. Every EPaxos run at those sizes except one had 30--250
-requests time out at the 2{,}000\,ms client timeout (success rates
-98.6--99.9\,\%), while Raft runs at the same sizes had none. Each timeout
-occupies a client worker for the full 2\,s, so the effective concurrency
-available to successful requests is reduced. Little's law, including the
-timeout term ($32 \approx X \cdot W_{\text{ok}} + N_{\text{timeout}}/20
-\cdot 2$), holds for every EPaxos run at these sizes, which confirms that
-the low throughput is a consequence of the timeouts rather than of slower
-successful requests: the successful requests complete in 5.4--5.6\,ms
-(p50), the same as at three replicas. The timeouts are consistent with the
-dependency-set extension required for seven- and nine-replica
-configurations, but we did not instrument the EPaxos execution path
-sufficiently to establish that mechanism.
+A second anomaly affects EPaxos at seven and nine replicas: request
+timeouts. Every EPaxos run at those sizes except one had 30--250 requests
+time out at the 2{,}000\,ms client timeout, corresponding to success rates
+of 98.6--99.9\,\%, while Raft runs at the same sizes had no timeouts. Each
+timeout occupies a client worker for the full 2\,s, reducing the
+concurrency available to successful requests. For a closed-loop client,
+Little's law can be applied to the successful requests and timed-out
+requests separately. In particular,
+
+$$
+N \approx X_{\mathrm{ok}}W_{\mathrm{ok}}
+  + X_{\mathrm{timeout}}W_{\mathrm{timeout}},
+$$
+
+where $X_{\mathrm{timeout}}=N_{\mathrm{timeout}}/20,\mathrm{s}$ and
+$W_{\mathrm{timeout}}=2,\mathrm{s}$. This accounting is consistent with
+every EPaxos run at seven and nine replicas. The successful requests
+themselves completed in 5.4--5.6\,ms at p50, similar to the corresponding
+three-replica measurements. Thus, the reduced measured throughput is
+accounted for by requests occupying workers until the timeout rather than
+by an increase in the p50 latency of successful requests. The timeout
+pattern is observed only in the seven- and nine-replica EPaxos
+configurations; the available instrumentation does not establish the
+specific execution-path mechanism responsible for it.
 
 The same nominal configuration (three replicas, 100\,\% writes, and
 concurrency 32) also occurs independently in several other steady-state
 experiment families. These repeated measurements provide an indication of
 run-to-run variability. The four family medians were 4{,}351, 4{,}368,
 4{,}483, and 4{,}441\,req/s for Raft, and 5{,}292, 5{,}288, 5{,}177, and
-5{,}250\,req/s for EPaxos. The EPaxos medians differed by approximately 2\,\%
-across these measurements, and the Raft medians by approximately 3\,\%.
-Cross-family variability is therefore comparable for the two protocols.
+5{,}250\,req/s for EPaxos. The EPaxos medians differed by approximately
+2\,\% across these measurements, and the Raft medians by approximately
+3\,\%. Cross-family variability was therefore of similar magnitude for the
+two implementations.
 
-For the scaling family, the difference between the implementations is
-significant at three and five replicas (exact Mann-Whitney $U$ test,
-$p<0.001$) but not at seven ($p=0.12$) or nine ($p=0.32$) replicas. The
-95\,\% bootstrap confidence intervals of the medians overlap at seven and
-nine replicas (Table~\ref{tab:scaling}). The EPaxos advantage is therefore
-established only at the smaller cluster sizes.
+For the scaling family, the difference between the implementations was
+statistically significant at three and five replicas (exact Mann--Whitney
+$U$ test, $p<0.001$), while no statistically significant difference was
+detected at seven ($p=0.12$) or nine ($p=0.32$) replicas. The 95\,\%
+bootstrap confidence intervals of the medians overlap at seven and nine
+replicas (Table~\ref{tab:scaling}). The measured EPaxos/Raft throughput
+difference was therefore statistically significant only at the smaller
+cluster sizes in this experiment.
 
 \input{tables/tab-scaling}
 
@@ -90,17 +98,17 @@ median.}
 
 Figure~\ref{fig:throughput-concurrency} shows throughput across the client
 concurrency sweep. Throughput increased with concurrency for both
-implementations over the tested range. At concurrency 1, the measured medians
-were 304\,req/s for Raft and 175\,req/s for EPaxos. At concurrency 256,
-the medians were 19{,}333\,req/s and 41{,}077\,req/s, respectively. The
-largest individual observations at concurrency 256 were 21{,}656\,req/s for
-Raft and 43{,}681\,req/s for EPaxos.
+implementations over the tested range. At concurrency 1, the measured
+medians were 304\,req/s for Raft and 175\,req/s for EPaxos. At concurrency
+256, the medians were 19{,}333\,req/s and 41{,}077\,req/s, respectively.
+The largest individual observations at concurrency 256 were 21{,}656\,req/s
+for Raft and 43{,}681\,req/s for EPaxos.
 
 Between concurrency 64 and 256, the Raft median increased from 7{,}020 to
 19{,}333\,req/s, while the EPaxos median increased from 10{,}712 to
-41{,}077\,req/s. These measurements show that both implementations continued
-to gain throughput as concurrency increased, although the magnitude of the
-increase differed between them.
+41{,}077\,req/s. Both implementations therefore continued to gain
+throughput as concurrency increased, although the magnitude of the
+increase differed between the two implementations.
 
 \begin{figure}[t]
 \centering
@@ -118,11 +126,11 @@ trend across the tested write ratios. The highest EPaxos median occurred at
 10\,\% writes, approximately 5\,\% above its 100\,\% write measurement,
 while the highest Raft median occurred at 0\,\% writes.
 
-The variation across write ratios is not statistically significant: a
-Kruskal-Wallis test of the five write-ratio groups gives $H=1.35$ for Raft
-and $H=1.69$ for EPaxos, both far below the $\chi^2_4$ critical value of
-9.49. The measurements therefore do not provide evidence of a systematic
-throughput effect attributable to write ratio under the tested conditions.
+The variation across write ratios was not statistically significant. A
+Kruskal--Wallis test of the five write-ratio groups gave $H=1.35$ for Raft
+and $H=1.69$ for EPaxos, both below the $\chi^2_4$ critical value of 9.49.
+The measurements therefore do not provide evidence of a systematic
+throughput effect associated with write ratio under the tested conditions.
 
 \begin{figure}[t]
 \centering
@@ -135,8 +143,8 @@ throughput effect attributable to write ratio under the tested conditions.
 Figure~\ref{fig:throughput-conflict-ratio} shows throughput across the
 configured conflict-ratio sweep. Median throughput ranged from
 4{,}152 to 4{,}504\,req/s for Raft and from 5{,}079 to 5{,}392\,req/s for
-EPaxos. A Kruskal-Wallis test of the seven conflict-ratio groups gives
-$H=3.71$ for Raft and $H=3.18$ for EPaxos, both far below the $\chi^2_6$
+EPaxos. A Kruskal--Wallis test of the seven conflict-ratio groups gave
+$H=3.71$ for Raft and $H=3.18$ for EPaxos, both below the $\chi^2_6$
 critical value of 12.59. No monotonic throughput relationship with the
 configured conflict ratio was observed for either implementation.
 
@@ -159,16 +167,16 @@ number of replicas increases. At three replicas, the median latency was
 range of 5.4--5.6\,ms across the tested replica counts
 (Table~\ref{tab:latency}).
 
-The results therefore show a substantially larger change in median latency
-with replica count for the evaluated Raft implementation than for the
-evaluated EPaxos implementation under this workload. The Raft p50 grew
-monotonically with replica count, whereas the EPaxos p50 was flat.
+The evaluated Raft implementation therefore showed a larger change in
+median latency with replica count than the evaluated EPaxos implementation
+under this workload. The Raft p50 increased monotonically with replica
+count, whereas the EPaxos p50 remained within the 5.4--5.6\,ms range.
 
 The p50 values should be read together with the tail. The p99 was 21.4\,ms
-for Raft and 23.8\,ms for EPaxos at three replicas, and grew to 26--29\,ms
-for Raft at seven to nine replicas while staying at 14--16\,ms for EPaxos.
-The median of the per-repetition p50 values is robust to the stalled
-repetitions described in Section~\ref{sec:evaluation}.
+for Raft and 23.8\,ms for EPaxos at three replicas, and increased to
+26--29\,ms for Raft at seven to nine replicas while remaining at
+14--16\,ms for EPaxos. The median of the per-repetition p50 values reduces
+the influence of the stalled repetitions described earlier.
 
 \input{tables/tab-latency}
 
@@ -187,35 +195,45 @@ concurrency. At concurrency 1, median latency was 2.8\,ms for Raft and
 6.9\,ms and 5.6\,ms. At concurrency 256, they were 12.1\,ms and
 5.6\,ms.
 
-Thus, the relative latency ordering changed with concurrency. Raft had the
-lower median at concurrency 1, EPaxos had the lower median at concurrency
-32 and above, and the gap grew with concurrency: at concurrency 256 the
-EPaxos p50 was 5.6\,ms against 12.1\,ms for Raft.
+The relative latency ordering therefore changed with concurrency. Raft had
+the lower median at concurrency 1, while EPaxos had the lower median at
+concurrency 32 and above. At concurrency 256, the measured p50 was
+5.6\,ms for EPaxos and 12.1\,ms for Raft.
 
 As with throughput, the same nominal configuration (three replicas,
-concurrency 32) is measured by several families. With medians, the p50 is
-consistent across families: Raft measured 6.9\,ms in the scaling family and
-6.9\,ms in the concurrency family, while EPaxos measured 5.6\,ms in both.
+concurrency 32) is measured by several experiment families. With medians,
+the p50 was consistent across families: Raft measured 6.9\,ms in the
+scaling family and 6.9\,ms in the concurrency family, while EPaxos
+measured 5.6\,ms in both.
 
-For a closed-loop client, Little's law relates the mean latency to the
-concurrency and throughput ($W = N/X$). The reported p50 is the median, not
-the mean, so it can lie below or above this value. At concurrency 256, the
-Raft p50 (12.1\,ms) is close to $N/X$ (256/19{,}333 $\approx$ 13.2\,ms),
-consistent with a roughly symmetric response-time distribution. The EPaxos
-p50 (5.6\,ms) is below $N/X$ (256/41{,}077 $\approx$ 6.2\,ms), which is
-expected for a right-skewed distribution where the median lies below the
-mean. We report p50, p95, and p99 in the processed dataset and use p50 here
-only as the central-tendency summary.
+For a closed-loop client, Little's law relates mean latency to concurrency
+and throughput as $W=N/X$. The reported p50 is the median rather than the
+mean, so it need not equal this quantity. At concurrency 256, the Raft p50
+of 12.1\,ms was close to $N/X$ (256/19{,}333 $\approx$ 13.2\,ms), while the
+EPaxos p50 of 5.6\,ms was below $N/X$ (256/41{,}077 $\approx$ 6.2\,ms).
+This difference is compatible with a response-time distribution whose
+median is below its mean. We report p50, p95, and p99 in the processed
+dataset and use p50 here as the central-tendency summary.
 
-At seven and nine replicas, the EPaxos p50 (5.4--5.5\,ms) is far below
-$N/X$ (32/2{,}094--3{,}053 $\approx$ 10.5--15.3\,ms). This is not a
-distributional artefact: as described in Section~\ref{sec:evaluation}, every
-EPaxos run at these sizes except one had requests time out at the 2{,}000\,ms
-client timeout, and each timeout occupies a worker for the full 2\,s.
-Including the timeout term, Little's law holds for every run, so the low
-throughput at these sizes is a consequence of the timeouts, not of slower
-successful requests. Raft runs at the same sizes had no timeouts and their
-$N/X$ matches the p50.
+At seven and nine replicas, the EPaxos p50 of 5.4--5.5\,ms was substantially
+below $N/X$ (32/2{,}094--3{,}053 $\approx$ 10.5--15.3\,ms). The difference
+is accounted for by the request timeouts described above. Every EPaxos run
+at these sizes except one had requests time out at the 2{,}000\,ms client
+timeout, and each timeout occupies a worker for the full 2\,s. For a
+closed-loop client with concurrency $N$, the corresponding accounting is
+
+$$
+N \approx X_{\mathrm{ok}}W_{\mathrm{ok}}
+  + X_{\mathrm{timeout}}W_{\mathrm{timeout}},
+$$
+
+where $X_{\mathrm{timeout}}=N_{\mathrm{timeout}}/20,\mathrm{s}$ and
+$W_{\mathrm{timeout}}=2,\mathrm{s}$. This accounting is consistent with
+every EPaxos run at seven and nine replicas. The low throughput can
+therefore be accounted for without requiring an increase in the p50
+latency of successful requests. Raft runs at the same sizes had no
+timeouts, and their measured $N/X$ values were closer to their reported
+p50 latencies.
 
 \begin{figure}[t]
 \centering
@@ -246,24 +264,21 @@ mean per-replica network rates, aggregated over the evaluated runs.}
 Figure~\ref{fig:per-replica-cpu} examines the distribution of CPU
 utilisation in the nine-replica scaling experiment. Raft per-replica means
 ranged from 16.3\,\% to 29.4\,\%. The replica serving as leader during a
-given repetition generally consumed \emph{less} CPU than the followers:
-labelling each run by the leader reported at the start of its measured
-phase, the leader/follower CPU ratio was 0.61--0.64 at three replicas and
-0.73--0.75 at seven and nine replicas (medians over the ten repetitions).
-This pattern is consistent with the request path of the evaluated HashiCorp
-Raft implementation, in which the leader sends AppendEntries and waits for
-quorum responses while followers receive, persist, and apply replicated log
-entries. The present measurements do not isolate the contribution of
-persistence, state-machine application, or communication processing to the
-observed CPU difference. The aggregate per-replica means therefore reflect
-the fraction of repetitions in which each replica was leader, but the
-leader is not the CPU hotspot.
+given repetition generally consumed less CPU than the followers. Labelling
+each run by the leader reported at the start of its measured phase, the
+leader/follower CPU ratio was 0.61--0.64 at three replicas, 0.70 at five
+replicas, and 0.73--0.75 at seven and nine replicas, using the medians over
+the ten repetitions.
 
-EPaxos per-replica means ranged from 22.4\,\% to 23.0\,\%, with no comparable
-single-replica concentration. These measurements are consistent with a more
-even distribution of CPU utilisation across replicas in the evaluated
-EPaxos implementation. They do not, however, establish CPU saturation as
-the mechanism limiting either implementation's throughput.
+This pattern is consistent with the request path of the evaluated
+HashiCorp Raft implementation, in which the leader sends AppendEntries and
+waits for quorum responses while followers receive, persist, and apply
+replicated log entries. The measurements do not isolate the contributions
+of persistence, state-machine application, or communication processing to
+the observed CPU difference. They therefore establish that the leader did
+not form the CPU hotspot in the evaluated implementation, but do not by
+themselves identify the individual processing components responsible for
+the difference.
 
 \begin{figure}[t]
 \centering
@@ -284,15 +299,15 @@ failed requests. Killing an EPaxos replica produced a gap of
 
 All runs completed successfully according to the experiment harness. The
 reported failed requests correspond to requests issued during the
-transition and are therefore distinct from a run-level failure.
+transition and are therefore distinct from run-level failure.
 
-The substantially longer gap following Raft leader termination coincides
+The longer availability gap following Raft leader termination coincided
 with the configured Raft election and request-retry behaviour. In contrast,
-the tested follower-failure case did not require replacing the Raft leader,
-and the EPaxos replica-failure case continued with the remaining replicas.
-These results describe the tested failure scenarios; they do not imply
-that all leader-based or leaderless implementations exhibit the same
-failure-recovery behaviour.
+the tested follower-failure case did not require replacement of the Raft
+leader, while the EPaxos replica-failure case continued with the remaining
+replicas. These results describe the tested failure scenarios and should
+not be interpreted as representative of all leader-based or leaderless
+implementations.
 
 \input{tables/tab-failure}
 
@@ -309,9 +324,9 @@ The election experiment provides a more controlled characterisation of
 Raft-specific recovery under repeated election disruption. The measured
 number of failed elections ranged from 0 to 13 across the 60 runs. The
 availability gap was strongly associated with the measured election count
-($r=0.90$, $p<10^{-4}$), but this relationship is partly mechanical because
-the isolation interval itself increases with the configured disruption
-duration.
+($r=0.90$, $p<10^{-4}$), but this relationship is partly mechanical
+because the isolation interval itself increases with the configured
+disruption duration.
 
 To examine recovery independently of the imposed isolation interval, the
 analysis also measures the time from the end of the isolation window to the
@@ -361,8 +376,8 @@ processing after the injected faults.
 This validation does not establish general linearizability, exhaustive
 ordering correctness, or correctness under workloads outside the tested
 cases. In particular, because the correctness workload assigns a unique
-key to each request, it is primarily a state-convergence check rather than
-an independent verification of operation-order semantics.
+key to each request, it primarily tests state convergence rather than
+providing an independent verification of operation-order semantics.
 
 \input{tables/tab-correctness}
 
@@ -380,14 +395,14 @@ HashiCorp Raft decreased from 4{,}502\,req/s at zero delay to
 1{,}280\,req/s at 10\,ms, a 72\,\% reduction. nvb EPaxos decreased from
 4{,}346 to 833\,req/s, an 81\,\% reduction, while the original EPaxos
 implementation decreased from 5{,}527 to 221\,req/s, a 96\,\% reduction.
-
 The etcd Raft implementation showed a different response: its throughput
 decreased from 6{,}420\,req/s at zero delay to 375\,req/s at 1\,ms and
-45\,req/s at 10\,ms. The resulting ordering therefore differs from the
-three-replica baseline comparison: implementation choice changes the
-relative throughput observed under added communication delay. The 95\,\%
-confidence intervals of the means are separated between the evaluated
-implementations at every non-zero delay level.
+45\,req/s at 10\,ms.
+
+The measured ordering therefore differed across implementations under
+added communication delay. The 95\,\% confidence intervals of the means
+were separated between the evaluated implementations at every non-zero
+delay level.
 
 \begin{figure}[t]
 \centering
@@ -424,9 +439,9 @@ etcd Raft (32\,\%).
 Under the implemented jitter model, 100\,\% jitter increases the maximum
 additional delay from zero to 5\,ms and increases the mean injected delay
 from 5 to 7.5\,ms. The measured throughput changes are therefore consistent
-with an increase in the average injected delay. The experiment does not
-separate the effects of delay variance from the corresponding change in
-mean delay.
+with an increase in average injected delay. The experiment does not
+separate the effect of delay variance from the corresponding change in mean
+delay.
 
 \begin{figure}[t]
 \centering
@@ -452,41 +467,42 @@ Raft.
 \item The relative throughput difference between the evaluated Raft and
 EPaxos implementations varied with replica count. The EPaxos/Raft median
 ratio was 1.22 at three replicas, 1.73 at five, 1.18 at seven, and 0.99 at
-nine, where the difference disappeared.
+nine, where no statistically significant difference was detected.
 
-\item Eight repetitions across the dataset stalled (two Raft, six EPaxos),
-which is why medians are reported rather than means. The Raft stalls
-coincided with elevated host load; the EPaxos stalls showed persistent
-request timeouts. The mean-based EPaxos/Raft ratio (1.29--1.75) overstates
-the difference at seven and nine replicas.
+\item Eight repetitions across the dataset stalled (two Raft and six
+EPaxos), motivating the use of medians for the reported point estimates.
+The Raft stalls coincided with elevated host load, whereas the EPaxos
+stalls occurred at both low and high host load. The mean-based EPaxos/Raft
+ratio was 1.29--1.75 and was larger than the corresponding median ratio at
+seven and nine replicas.
 
 \item Throughput continued to increase with client concurrency up to the
 tested maximum of 256. At that point, the measured medians were
 41{,}077\,req/s for EPaxos and 19{,}333\,req/s for Raft.
 
-\item Median latency depended on concurrency and replica count. EPaxos had
-lower median latency than Raft at the tested baseline and across the
-replica-scaling measurements, and the gap grew with concurrency: at
-concurrency 256 the p50 was 5.6\,ms for EPaxos against 12.1\,ms for Raft.
+\item Median latency depended on both concurrency and replica count. EPaxos
+had the lower measured median at the baseline configuration and throughout
+the replica-scaling measurements. At concurrency 256, the p50 was
+5.6\,ms for EPaxos compared with 12.1\,ms for Raft.
 
 \item Write ratio and conflict ratio did not produce a systematic throughput
-trend over the tested ranges. Kruskal-Wallis tests of the write-ratio and
-conflict-ratio groups are not significant for either implementation
-($H \le 3.71$ against critical values of 9.49 and 12.59).
+trend over the tested ranges. Kruskal--Wallis tests of the write-ratio and
+conflict-ratio groups were not significant for either implementation
+($H\leq3.71$ against critical values of 9.49 and 12.59).
 
-\item Raft leader termination produced a substantially longer availability
-gap than the tested Raft follower and EPaxos replica termination scenarios.
-The measured election experiment additionally showed an association between
-failed-election count and recovery intervals, although the relationship is
-reported descriptively rather than causally.
+\item Raft leader termination produced a longer availability gap than the
+tested Raft follower and EPaxos replica termination scenarios. The
+additional election experiment showed an observed association between
+failed-election count and recovery intervals, although the relationship
+was not interpreted causally.
 
 \item Per-replica CPU utilisation was distributed differently in the
 nine-replica scaling experiment. Across the scaling configurations, the
-measured leader/follower CPU ratio remained below 1.0 in the evaluated
-HashiCorp Raft implementation, indicating that the leader did not form the
-CPU hotspot, whereas EPaxos showed a more even distribution across
-replicas. These observations do not by themselves identify CPU saturation
-as a throughput bottleneck.
+measured leader/follower CPU ratio remained below 1.0 (0.61--0.64 at
+three replicas, 0.70 at five, and 0.73--0.75 at seven and nine). Thus, the
+leader did not form the CPU hotspot in the evaluated HashiCorp Raft
+implementation. These measurements do not by themselves identify CPU
+saturation as a throughput bottleneck.
 
 \item Communication sensitivity differed substantially across the four
 evaluated implementations. At 10\,ms of application-level one-way delay,
@@ -494,10 +510,11 @@ throughput reductions ranged from 72\,\% for HashiCorp Raft to 96\,\% for
 the original EPaxos implementation, while etcd Raft showed a much steeper
 decline beginning at the smallest non-zero delay tested.
 
-\item The communication-cost results demonstrate that implementation choice
-can materially change the measured performance relationship between
-leader-based and leaderless consensus. Consequently, results from a single
-implementation of each protocol should not be interpreted as
-implementation-independent properties of the protocol families.
+\item The communication-cost results show that implementation choice can
+materially change the measured performance relationship between
+leader-based and leaderless consensus. Results from a single implementation
+of each protocol should therefore be interpreted as measurements of those
+implementations rather than as implementation-independent properties of
+the corresponding protocol families.
 
 \end{itemize}
