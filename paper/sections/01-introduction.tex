@@ -1,30 +1,84 @@
 \section{Introduction}
 
-Distributed systems often replicate the same state across multiple machines in order to provide fault tolerance and continued service in the presence of failures. When a new operation modifies the state of a replicated state machine, replicas must agree on how that operation is ordered and applied. If different replicas apply operations in different orders, their states can diverge, violating the consistency guarantees expected from the system. Consensus is therefore a fundamental problem in distributed systems.
+Distributed systems often replicate state across multiple machines to provide
+fault tolerance and continued service in the presence of failures. When a
+replicated state machine processes an operation, its replicas must coordinate
+to maintain a consistent state despite concurrent execution and failures.
+Consensus protocols provide the coordination mechanisms required for this
+process and are therefore fundamental to many distributed systems.
 
-Paxos is one of the foundational consensus algorithms that established a formal approach to reaching agreement among distributed nodes in the presence of failures~\cite{lamport1998parttime}. Despite its theoretical importance, Paxos is notoriously difficult to understand and implement. The original presentation is highly abstract and leaves substantial implementation details to system designers. As a result, practical systems based on consensus algorithms may differ considerably in their architecture and implementation choices.
+Paxos is one of the foundational consensus algorithms for reaching agreement
+among distributed nodes in the presence of failures~\cite{lamport1998parttime}.
+Although its formulation is influential, the original presentation is
+highly abstract and leaves substantial implementation decisions to system
+designers. Consequently, systems implementing consensus can differ
+considerably in their execution paths, storage mechanisms, communication
+patterns, and resource requirements even when they implement the same
+underlying protocol family.
 
-Raft was introduced with a different design goal: making consensus easier to understand and implement while maintaining strong fault-tolerance guarantees~\cite{ongaro2014raft}. A central feature of Raft is its explicit leader. Client requests that modify replicated state are handled by the leader, which determines the log order and replicates entries to follower replicas before they are committed. In this paper, we refer to this arrangement as \emph{centralised ordering}: the responsibility for determining the order of replicated operations is concentrated in a designated leader, while the other replicas primarily replicate and apply the ordering established by that leader. This structure provides a clear division of responsibilities between the leader and followers and simplifies the coordination required for replicated state machine execution.
+Raft was introduced with an emphasis on understandability and
+implementability while providing fault-tolerant consensus
+\cite{ongaro2014raft}. A central feature of Raft is its explicit leader.
+Client operations are submitted through the leader, which determines the
+order of log entries and coordinates their replication before commitment.
+This leader-based structure provides a clear separation between request
+coordination and replica execution. It also creates a characteristic
+coordination pattern: normal request processing is concentrated at the
+leader, and leader failure requires an election before leader-based request
+processing can resume.
 
-The centralised structure of Raft also creates a particular pattern of coordination. Write ordering is concentrated at the leader, and changes in the number of replicas or the offered workload may therefore affect the amount of work performed by the leader and the communication required to commit an operation. Leader failure introduces another distinct condition: because normal request processing depends on the leader, the system must establish a new leader before leader-based processing can resume.
+EPaxos provides a contrasting leaderless approach
+\cite{moraru2013epaxos}. Rather than relying on a single replica to determine
+a global order for all operations, EPaxos allows replicas to propose
+operations and determine dependencies among them. Operations that do not
+conflict can therefore avoid some of the coordination associated with a
+single global ordering point. This structure does not eliminate consensus
+overhead, however. Dependency tracking, conflict detection, and additional
+coordination can introduce their own communication and computational costs.
 
-An alternative approach is provided by leaderless consensus. Rather than assigning a single replica the responsibility of coordinating all operations, leaderless protocols allow multiple replicas to participate directly in determining the ordering and dependencies of operations. EPaxos is a representative example of this approach~\cite{moraru2013epaxos}. It exploits the independence of non-conflicting operations so that replicas can sometimes commit operations without relying on a single global ordering point.
+These architectural differences motivate an empirical comparison, but they
+also make a simple protocol-level performance ranking difficult to
+interpret. A protocol may perform differently as the number of replicas,
+client concurrency, operation conflicts, or communication delay changes.
+Furthermore, measured performance is affected by implementation-level
+mechanisms such as persistence, scheduling, message handling, and resource
+management. As a result, a performance difference observed between two
+implementations cannot automatically be attributed to the consensus
+algorithm alone.
 
-The absence of a central leader, however, does not eliminate the costs of consensus. Leaderless protocols require mechanisms for identifying conflicts, tracking dependencies, and coordinating the execution of operations. These mechanisms can introduce additional communication and computational overhead. The resulting performance therefore depends on the characteristics of the workload and system configuration rather than following directly from the presence or absence of a leader. Factors such as operation conflicts, client concurrency, replica count, read/write composition, and failures can affect the observed behaviour of either approach.
+This distinction is particularly important when comparing leader-based and
+leaderless consensus. The presence of a leader provides a structural
+difference in how requests are coordinated, but it does not by itself
+determine the measured throughput or latency of a concrete implementation.
+Conversely, an observed performance difference between two implementations
+may arise from the interaction between protocol structure and implementation
+mechanisms. An experimental comparison should therefore examine both
+absolute performance and how that performance changes across controlled
+conditions.
 
-These differences motivate an empirical comparison that separates absolute performance from performance response to changing conditions. A system may achieve higher throughput under one configuration while exhibiting a different rate of degradation as the workload or system size changes. Moreover, measured performance is affected not only by the consensus algorithm itself but also by implementation-level mechanisms such as persistence, scheduling, communication, and resource management. Comparing a single implementation of each protocol can therefore conflate algorithmic structure with implementation-specific behaviour.
-
-In this paper, we experimentally compare Raft and EPaxos as representative leader-based and leaderless consensus protocols. Rather than assuming that either approach is universally superior, we examine how their measured behaviour changes under controlled variations in system scale and workload. The evaluation considers both absolute performance and the sensitivity of throughput and latency to changes in replica count, client concurrency, operation conflict rate, and read/write composition. We additionally examine failure behaviour and the effect of implementation choices on the measured results.
+In this paper, we experimentally compare Raft and EPaxos as representative
+leader-based and leaderless consensus protocols. We evaluate throughput,
+latency, resource utilisation, and failure behaviour under controlled
+variations in replica count, client concurrency, operation conflict rate,
+read/write composition, and communication conditions. We additionally
+compare multiple implementations to examine how implementation choices
+affect the measured relationship between the two protocol families.
 
 We focus on the following research questions:
 
 \begin{itemize}
 
-\item \textbf{RQ1:} How do the throughput and latency of leader-based and leaderless consensus respond to changes in replica count, client concurrency, conflict rate, and read/write composition?
+\item \textbf{RQ1:} How do the measured throughput and latency of the
+evaluated leader-based and leaderless implementations change with replica
+count, client concurrency, conflict rate, and read/write composition?
 
-\item \textbf{RQ2:} How does replica failure affect the availability and performance of the two approaches, and how does leader failure in Raft differ from follower failure?
+\item \textbf{RQ2:} How do the evaluated implementations behave under
+replica and leader failures, particularly with respect to availability
+gaps and request failures?
 
-\item \textbf{RQ3:} To what extent do implementation-level differences affect the measured performance of Raft and EPaxos?
+\item \textbf{RQ3:} How do communication conditions and implementation
+choices affect the measured performance differences between Raft and
+EPaxos?
 
 \end{itemize}
 
@@ -32,18 +86,52 @@ We make the following contributions:
 
 \begin{itemize}
 
-\item \textbf{Reproducible benchmark infrastructure:} We build the Consensus Lab, which runs Raft and EPaxos in a common execution environment behind a common client harness and interface, providing a controlled basis for comparing their measured behaviour.
+\item \textbf{Reproducible benchmark infrastructure:} We build the
+Consensus Lab, which executes Raft and EPaxos in a common containerised
+environment through a common client harness and benchmark-facing interface,
+providing a controlled basis for measuring their behaviour.
 
-\item \textbf{Sensitivity-oriented evaluation:} We characterise throughput and latency under controlled changes in replica count, client concurrency, conflict rate, and read/write composition, analysing both absolute measurements and their relative changes across configurations.
+\item \textbf{Sensitivity-oriented evaluation:} We measure throughput and
+latency across controlled variations in replica count, client concurrency,
+conflict rate, read/write composition, and communication conditions rather
+than relying on a single benchmark configuration.
 
-\item \textbf{Failure behaviour analysis:} We measure the effects of leader and replica failures on request processing and service availability, distinguishing the effects of Raft leader failure from follower failure and replica failure in EPaxos.
+\item \textbf{Failure behaviour analysis:} We characterise request
+processing and availability under Raft leader failure, Raft follower
+failure, and EPaxos replica failure, separating leader-election effects
+from replica-failure observations.
 
-\item \textbf{Implementation-level analysis:} We examine how different implementations of the same consensus approach affect measured performance, allowing implementation-specific effects to be distinguished from observations that are consistent across implementations.
+\item \textbf{Implementation-level analysis:} We evaluate multiple
+implementations of the two protocol families in selected experiments to
+quantify the extent to which implementation choices affect the measured
+performance relationship.
 
-\item \textbf{Open infrastructure:} The lab, experiment configurations, and analysis pipeline are released at \url{https://github.com/Sephy314/Leader-consensus-comparison}, allowing the experiments and analysis to be reproduced and the measured data to be independently re-analysed.
+\item \textbf{Open infrastructure:} We release the lab, experiment
+configurations, and analysis pipeline at
+\url{https://github.com/Sephy314/Leader-consensus-comparison}, allowing the
+experimental procedure and processed results to be independently
+re-analysed.
 
 \end{itemize}
 
-To answer these questions, we conduct controlled experiments comparing Raft and EPaxos under comparable system configurations and workloads. The experiments measure throughput, latency, resource consumption, and behaviour under node failures. Performance sensitivity is analysed using measurements across multiple configurations rather than treating a single benchmark configuration as representative of the protocol as a whole. Because the experiments are conducted in a local environment rather than on physically distributed machines, the results should be interpreted as measurements of protocol behaviour under the specified experimental conditions rather than as universal measurements of performance in production-scale distributed systems.
+The experiments use a common containerised execution environment and the
+same client workload model for the evaluated implementations. Performance
+measurements are based on repeated runs across controlled configurations,
+with raw per-run observations retained for independent analysis. Because the
+experiments are conducted in a local environment rather than across
+physically distributed machines, the results are measurements of the
+evaluated implementations under the specified experimental conditions and
+should not be interpreted as universal production-performance estimates.
 
-The remainder of this paper is organised as follows. Section~\ref{sec:background} provides background on distributed consensus and reviews leader-based and leaderless approaches, together with related work. Section~\ref{sec:setup} describes the Consensus Lab, the implementations under test, the client harness and workload model, the metrics, and the experiment suite. Section~\ref{sec:evaluation} presents the experimental results on throughput, scalability, latency, resource utilisation, failure behaviour, and implementation differences. Section~\ref{sec:discussion} discusses the results with respect to the research questions and the observed trade-offs between leader-based and leaderless ordering structures. Section~\ref{sec:threats} discusses threats to the validity of the measurements. Section~\ref{sec:conclusion} summarises the findings.
+The remainder of this paper is organised as follows. Section~\ref{sec:background}
+provides background on distributed consensus and discusses leader-based and
+leaderless approaches together with related work. Section~\ref{sec:setup}
+describes the Consensus Lab, the implementations under test, the client
+harness and workload model, the metrics, and the experiment suite.
+Section~\ref{sec:evaluation} presents the experimental results on throughput,
+scalability, latency, resource utilisation, failure behaviour, communication
+conditions, and implementation differences. Section~\ref{sec:discussion}
+interprets the results with respect to the research questions and discusses
+the observed trade-offs between the evaluated implementations. Section
+~\ref{sec:threats} discusses threats to the validity of the measurements.
+Section~\ref{sec:conclusion} summarises the findings.

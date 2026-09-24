@@ -7,76 +7,130 @@
 All replicas run on a single host inside containers over a bridge network, so
 the measurements contain no wide-area latency, no real packet loss, and no
 multi-machine failure domains. The host is a WSL2 environment, which places a
-virtualisation layer between the containers and the hardware. Cluster sizes are
-3--9, the keyspace is 1{,}000 keys, commands are uniform in size, and the
-measured phase is 20\,s. The results therefore describe s hort, uniform,
-single-host runs rather than long-lived deployments with skewed access patterns
-or large payloads.
+virtualisation layer between the containers and the underlying hardware.
+Cluster sizes are 3--9, the keyspace is 1{,}000 keys, commands are uniform in
+size, and the measured phase is 20\,s. The results therefore describe short,
+uniform, single-host runs rather than long-lived deployments with skewed access
+patterns, large payloads, heterogeneous hardware, or geographically distributed
+replicas.
 
 The benchmark also places multiple replicas, the client, and the control
 processes on the same host. Consequently, processes may compete for host CPU
-resources, and the measured resource utilisation can depend on host-level
+resources, and measured resource utilisation can depend on host-level
 scheduling and contention. The experiments detect anomalous resource
 conditions, but do not provide strict CPU or hardware isolation. Resource
 utilisation should therefore be interpreted as an observation under the
 evaluated environment rather than as an implementation-independent resource
 requirement.
 
+Each replica is allocated two CPUs, while the evaluated processes use
+\texttt{GOMAXPROCS=4}. Thus, the configured Go scheduler parallelism exceeds
+the nominal container CPU quota. The resulting interaction with host
+scheduling and cgroup CPU throttling is part of the measured environment and
+may affect both throughput and latency. Repeating the experiments with
+\texttt{GOMAXPROCS} matched to the CPU quota would provide an additional
+sensitivity check.
+
 Reads are routed through consensus in both protocols and no Raft-specific read
-optimisation is enabled, so the read comparison is one of equivalent consistency
-rather than of each system's fastest read path; a deployment using leader leases
-or \texttt{ReadIndex} would show a different read profile. Both systems are
-measured with identical CPU and memory allocations, which is the fair choice for
-a controlled comparison but is not a tuned deployment of either.
+optimisation is enabled. The read comparison is therefore one of equivalent
+consensus-facing request paths rather than of each system's fastest possible
+read path. A deployment using mechanisms such as leader leases or
+\texttt{ReadIndex} could exhibit a different read profile. Similarly, both
+systems are measured with identical CPU and memory allocations. This provides
+a controlled comparison but does not represent a resource-tuned deployment of
+either implementation.
 
-The comparison also uses one implementation of each protocol, so the results
-should not be interpreted as representative of all Raft or EPaxos
-implementations. The measured behaviour may depend on implementation-specific
-choices such as batching, storage, networking, scheduling, configuration
-defaults, and optimisation level. In particular, the use of HashiCorp Raft and
-the original EPaxos research implementation means that the measured differences
-cannot be attributed exclusively to the underlying ordering architecture.
+The comparison does not establish that the measured behaviour is representative
+of all Raft or EPaxos implementations. The implementation-sensitivity
+experiments explicitly demonstrate that batching, persistence, networking,
+scheduling, transport handling, configuration defaults, and other
+implementation choices can substantially affect measured performance.
+Consequently, absolute throughput and latency should be interpreted as
+properties of the evaluated implementations and environment rather than as
+intrinsic properties of the underlying protocols.
 
-The EPaxos implementation is additionally modified to support the dependency-set
-sizes required by the 7- and 9-replica configurations. These modifications are
-part of the evaluated implementation and may contribute to the observed
-performance at those replica counts. The results at larger cluster sizes should
-therefore not be interpreted as isolating the cost of the EPaxos protocol from
-the cost of this implementation extension.
+The EPaxos implementation is additionally modified to support the
+dependency-set sizes required by the 7- and 9-replica configurations. These
+modifications are part of the evaluated implementation and may contribute to
+the observed performance at those replica counts. Results at larger cluster
+sizes should therefore not be interpreted as isolating the cost of the EPaxos
+protocol from the cost of this implementation extension.
 
-Repeating the comparison with multiple independent implementations of each
-protocol would provide stronger evidence for generalising from these specific
-implementations to the broader leader-based and leaderless design classes.
+The communication experiment introduces delay in the application-level
+outbound message path rather than through a physical network emulator. The
+injected delay therefore does not reproduce all effects of real networks,
+including queueing, packet loss, link-level scheduling, or interactions among
+independent flows. In addition, the jitter experiment changes the mean delay
+when jitter is increased. Its results consequently cannot isolate the effect
+of delay variance from the accompanying change in mean delay. A network-level
+experiment using an emulator such as \texttt{tc netem}, or an equivalent
+asynchronous delay mechanism, would provide stronger external validity.
 
 The failure and leader-election experiments are conducted with three replicas.
 Their recovery times therefore characterise the evaluated three-replica
 configuration and should not be interpreted as establishing recovery behaviour
-for larger clusters.
+for larger clusters. The failure scenarios are also not symmetric: the Raft
+leader-failure experiment removes the replica used as the normal request
+endpoint, whereas the Raft follower-failure and EPaxos replica-failure
+experiments remove a non-central replica. The results therefore characterise
+specific failure modes rather than providing a complete cross-protocol
+fault-tolerance comparison.
 
 For Raft, the observed leader-recovery interval also depends on the configured
-heartbeat and election-timeout parameters. The reported recovery times should
-therefore be interpreted relative to the evaluated timing configuration rather
-than as protocol-independent bounds on Raft recovery.
+heartbeat and election-timeout parameters, as well as client timeout and
+reconnection behaviour. The reported recovery times should therefore be
+interpreted relative to the evaluated timing and request-handling configuration
+rather than as protocol-independent bounds on Raft recovery.
+
+Finally, the correctness harness uses deterministic unique-key operations and
+compares replica state after execution. It verifies state convergence under
+the tested workloads and restart scenarios, but it does not constitute a
+formal verification of consensus correctness or establish general
+linearizability. In particular, the unique-key workload does not exercise
+conflicting operations on the same state in a way that would expose every
+possible ordering violation.
 
 \subsection{Statistical Conclusion Validity}
 
 Each configuration is measured ten times, and aggregates are reported as means
-with sample standard deviation and a $t$-based 95\,\% interval. Ten
-repetitions leave wide intervals for a variable system: measuring the same
-nominal configuration in four steady-state experiment families produced means that differed
-by up to 21\,\% for Raft and 8\,\% for EPaxos, and intervals overlap in several
-comparisons whose means differ, for example at 7 and 9 replicas. We therefore
-read only differences that exceed this reproducibility band and treat the
-overlapping comparisons as inconclusive rather than as small effects. Numerous
-configurations are compared without a multiplicity correction, so an isolated
-configuration-level difference should not be read as an established effect.
+with sample standard deviation and a $t$-based 95\,\% confidence interval. Ten
+repetitions leave substantial uncertainty for a variable system: measuring the
+same nominal configuration in four steady-state experiment families produced
+means that differed by up to 21\,\% for Raft and 8\,\% for EPaxos, while
+confidence intervals overlap in several comparisons whose means differ, such
+as at seven and nine replicas. We therefore interpret differences in the
+context of observed run-to-run variability and treat overlapping comparisons
+as inconclusive rather than as evidence of a small but established effect.
+
+The experiment suite contains many configurations and pairwise comparisons
+without a global multiplicity correction. An isolated statistically detectable
+difference should therefore not be interpreted as strong evidence for a
+general effect. This consideration is particularly important for exploratory
+analyses such as regression over workload composition and correlation analyses
+within the election experiment.
+
+The election correlation analysis also requires particular caution. The
+measured number of failed election attempts is an outcome of the recovery
+process and is mechanically related to the injected isolation duration.
+Accordingly, the reported correlations characterise associations within the
+observed Raft recovery runs rather than providing causal estimates of the
+effect of an additional failed election.
 
 The 20\,s measurement window also limits the extent to which the experiments
 characterise long-term steady-state behaviour. The reported results should
 therefore be understood as measurements over the specified workload and
 measurement interval rather than as estimates of indefinite long-running
 performance.
+
+The benchmark uses a closed-loop client in which each worker issues its next
+request only after the previous request completes. Configured concurrency
+therefore represents a maximum number of in-flight requests rather than an
+independently controlled arrival rate. Throughput and latency results should
+accordingly not be interpreted as a conventional open-loop capacity curve.
+
 Outliers within clean runs are not removed. Runs identified as affected by
 environmental interference or measurement failure are investigated separately
 and are not excluded solely because their performance is inconvenient for the
-comparison.
+comparison. Replacement runs are recorded separately, and the original
+observations remain in the raw dataset. All reported aggregates are derived
+from the retained per-run observations.

@@ -1,40 +1,48 @@
 \begin{abstract}
-Leader-based consensus protocols such as Raft concentrate the ordering of
-replicated writes at a single elected leader, whereas leaderless protocols
-such as EPaxos distribute ordering across replicas. This paper measures what
-that difference costs in practice. Both protocols are evaluated under one
-benchmark methodology: the same workload generator, identical CPU and memory
-allocations, the same failure injection, and the same metrics, across seven
-experiment families with ten independent repetitions each and replica counts
-from three to nine, on a single containerised host. EPaxos sustained a higher
-mean throughput than Raft at every replica count tested (1.29$\times$ to
-1.75$\times$, largest at five replicas) and a lower median latency at every
-replica count; the 95\,\% intervals of the means are separated at three and
-five replicas but overlap at seven and nine. Throughput decreased for both
-protocols as replicas were added (57\,\% for EPaxos and 50\,\% for Raft), so
-the scaling penalty is not specific to leader-based ordering. Aggregate CPU
-utilisation was similar for the two protocols, but its distribution was not:
-Raft concentrated utilisation on the current leader, while EPaxos spread it
-more evenly. Failure behaviour differed by failure role rather than by protocol
-alone: losing the Raft leader cost seconds of write availability and thousands
-of failed requests, whereas losing a Raft follower or an EPaxos replica cost
-tens of milliseconds. The write-ratio and conflict-ratio sweeps showed no
-systematic trend for either protocol, and EPaxos used about 1.8$\times$ the
-peak memory of Raft in the evaluated implementation.
 
-To separate protocol-level behaviour from implementation choices, each
-protocol is also evaluated through a second, independent implementation
-(etcd Raft beside HashiCorp Raft, nvb EPaxos beside the original EPaxos).
-The four implementations differed sharply in their sensitivity to added
-one-way communication cost: at 10\,ms, throughput fell by 72--96\,\% across
-the implementations, and the etcd Raft implementation collapsed by 94\,\%
-at 1\,ms already, so absolute performance is a property of the
-implementation stack, not of the consensus algorithm alone. A separate
-correctness harness verifies, independently of the performance benchmark,
-that every implementation performs consistent consensus execution: all 18
-deterministic tests (concurrency 1/8/32 plus leader, follower, and replica
-failures) passed, with no missing or duplicate application and agreement
-among surviving replicas. The two protocols are represented by different
-implementations and were measured on a single local host, so these results
-should not be read as universal properties of either protocol.
+Leader-based consensus protocols such as Raft route normal write requests
+through an elected leader, whereas leaderless protocols such as EPaxos permit
+proposal initiation at multiple replicas. This paper presents an
+implementation-level experimental comparison of these two approaches under a
+common benchmark methodology. The evaluation uses the same workload generator,
+CPU and memory allocations, failure injection, and measurement procedures,
+with ten independent repetitions across seven experiment families and replica
+counts from three to nine on a single containerised host.
+
+In the primary implementations, EPaxos achieved higher mean throughput than
+Raft at every tested replica count, with mean ratios ranging from
+1.29$\times$ to 1.75$\times$. However, the relative difference varied with
+cluster size, and confidence intervals overlapped at seven and nine replicas.
+Increasing the replica count reduced throughput for both implementations,
+showing that larger replica sets introduced additional coordination and
+communication costs rather than proportional throughput scaling. Client
+concurrency produced a larger separation at high concurrency, while the
+read/write-ratio and conflict-ratio experiments showed no clear systematic
+throughput trend. Median latency also depended on operating condition, with
+the ordering between implementations changing across the concurrency range.
+Resource measurements showed similar aggregate CPU utilisation but different
+distributions across replicas, while EPaxos used approximately 1.8$\times$ the
+peak memory of Raft in the evaluated implementations.
+
+Failure experiments revealed a more specific distinction in request-path
+dependence. Losing the Raft leader produced availability gaps of
+1.81--4.74\,s and thousands of failed requests, whereas losing a Raft
+follower or an EPaxos replica produced substantially shorter interruptions in
+the tested three-replica configuration. These results characterise specific
+failure modes rather than establishing a general fault-tolerance advantage for
+either protocol.
+
+To examine implementation sensitivity, the study additionally evaluates two
+Raft implementations and two EPaxos implementations. Their responses to
+application-level one-way communication delay differed substantially: at
+10\,ms of injected cost, throughput decreased by 72--96\,\% across the
+implementations, while the etcd Raft implementation decreased by 94\,\% at
+1\,ms. These results show that absolute performance and communication
+sensitivity depend substantially on the implementation stack and cannot be
+attributed to consensus structure alone. A separate correctness harness
+performed 18 deterministic state-convergence tests covering concurrency levels
+of 1, 8, and 32 and the tested replica-failure scenarios; all tests passed.
+The results should therefore be interpreted as controlled measurements of the
+evaluated implementations rather than universal properties of Raft or EPaxos.
+
 \end{abstract}
