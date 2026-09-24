@@ -6,25 +6,32 @@ Research repository.
 
 <https://github.com/Sephy314/Leader-consensus-comparison>
 
-> Status: the experiment matrix has been run and processed, and the paper is
-> written from abstract to conclusion. The released PDF lives in
-> `paper/release/`; `paper/` rebuilds it from source.
+> Status: the experiment matrix has been run and processed, the correctness
+> harness passes for all four implementations, and the paper is written from
+> abstract to conclusion. The released PDF lives in `paper/release/`;
+> `paper/` rebuilds it from source.
 
 This repository contains a reproducible benchmark infrastructure (the
 **Consensus Lab**) for comparing the write path of two consensus protocols in
-the same execution environment:
+the same execution environment, each through two independent implementations:
 
 | Protocol | Category | Implementation |
 |----------|----------|----------------|
 | Raft | Leader-based | `github.com/hashicorp/raft` (pinned v1.7.3, module dep) |
+| Raft | Leader-based | `go.etcd.io/raft` (v3.7.0, module dep; lab adapter) |
 | EPaxos | Leaderless / Egalitarian | `efficient/epaxos` (pinned commit, vendored) |
+| EPaxos | Leaderless / Egalitarian | `nvanbenschoten/epaxos` (pinned commit, vendored) |
 
 Raft and EPaxos are used as representative implementations of leader-based
 and leaderless consensus respectively. The lab does **not** modify the
 upstream consensus protocol logic. It vendors the upstream source, builds it
 into a Docker image, and drives it with a controlled client harness to
 measure write throughput, write latency, write scalability, per-replica
-resource utilisation, and write behaviour during failures.
+resource utilisation, and write behaviour during failures. A second,
+independent implementation of each protocol (etcd Raft, nvb EPaxos) isolates
+implementation effects from protocol-level behaviour, and a separate
+correctness harness verifies that every implementation performs consistent
+consensus execution.
 
 > The lab does not modify the upstream consensus logic and does not favour
 > either protocol: it measures, validates, and reports. The interpretation of
@@ -69,6 +76,16 @@ concurrency 32. The paper in `paper/` reports the full evaluation.
 - The same nominal configuration measured in four experiment families differs
   by up to 21 % (Raft) and 8 % (EPaxos); differences below that band are not
   read out of a single family.
+- Under added one-way communication cost the four implementations differed
+  sharply: at 10 ms, HashiCorp Raft lost 72 % of its throughput, nvb EPaxos
+  81 %, the original EPaxos 96 %, and etcd Raft collapsed by 94 % at 1 ms
+  already. Jitter at a 5 ms cost reduced throughput by 24–36 % at 100 %
+  jitter, a much weaker effect than the cost itself.
+- A correctness harness (18 deterministic tests per implementation family:
+  concurrency 1/8/32 plus leader, follower, and replica failures) passes for
+  all four implementations: every replied request is applied exactly once,
+  surviving replicas agree on the final state, and Raft restarts recover the
+  committed state.
 
 These are measurements of one implementation per protocol on a single
 containerised host under the conditions in `docs/experiment-design.md`, not
@@ -78,8 +95,10 @@ universal properties of leader-based or leaderless consensus.
 
 | Item | State |
 |------|-------|
-| Experiment matrix | run: 129 configurations, six families, 10 repetitions each |
+| Experiment matrix | run: 129 configurations, seven families, 10 repetitions each |
 | Measured runs | 1,302 raw runs, 1,290 included; 12 excluded by the documented host-telemetry contamination rule and replaced |
+| Implementation sensitivity | 4 implementations (HashiCorp/etcd Raft, original/nvb EPaxos); sensitivity + commcost datasets in `lab/results/sensitivity/`, `lab/results/commcost/` |
+| Correctness validation | 18/18 tests pass across all 4 implementations; `lab/results/correctness/correctness.json` |
 | Processed measurements | `lab/results/processed/` (per-run metrics, per-configuration summaries, failure and run indexes) |
 | Figures and report | `lab/results/figures/`, `lab/results/report/index.html` |
 | Paper | `paper/release/The-Cost-of-Centralised-Leadership-in-Distributed-Consensus.pdf`; sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
@@ -110,14 +129,17 @@ consensus-comparison/
 │   ├── docs/               # benchmark protocol, audit, reproducibility notes
 │   ├── upstream/           # vendored upstream implementations
 │   │   ├── epaxos/         # efficient/epaxos (pinned commit, Apache-2.0, CMU 2013)
+│   │   ├── nvb-epaxos/     # nvanbenschoten/epaxos (pinned commit, vendored)
 │   │   └── raft/           # github.com/hashicorp/raft (pinned v1.7.3, module dep)
 │   ├── adapters/raft/      # thin adapter around HashiCorp Raft (no consensus logic)
+│   ├── adapters/etcdraft/  # adapter around go.etcd.io/raft (no consensus logic)
+│   ├── adapters/nvbepaxos/ # adapter around nvanbenschoten/epaxos (no consensus logic)
 │   ├── master/raft/        # coordination service for Raft runs (leader reporting only)
 │   ├── client/             # common benchmark client (both protocols, one wire protocol)
 │   ├── monitor/            # host-side per-container resource sampler
-│   ├── runner/             # experiment runner: build, run, matrix, smoke
+│   ├── runner/             # experiment runner: build, run, matrix, smoke, correctness
 │   ├── report/             # processing + figure + HTML report generation (Python)
-│   ├── configs/            # explicit experiment configurations (matrix.json, smoke.json)
+│   ├── configs/            # explicit experiment configurations (matrix.json, smoke.json, sensitivity.json, commcost.json)
 │   ├── docker/             # lab runtime image
 │   ├── internal/           # shared packages (wire protocol, state, config)
 │   └── results/            # raw/processed/figures/report (generated)
@@ -141,6 +163,7 @@ consensus-comparison/
 cd lab
 make build        # build Go binaries + upstream EPaxos + docker image
 make smoke        # staged smoke tests (build, clusters, requests, workload, failures, metrics)
+make correctness  # correctness-validation harness (18 deterministic tests, all 4 implementations)
 make matrix       # run the full experiment matrix (hours)
 make report       # process raw results + generate figures + HTML report
 ```
@@ -162,9 +185,25 @@ make run CFG=configs/matrix.json REP=1
 ### Running the experiment suite
 
 ```sh
-make matrix       # full experiment matrix (six families: workload, scaling,
-                  # conflict, concurrency, election, failure)
+make matrix       # full experiment matrix (seven families: workload, scaling,
+                  # conflict, concurrency, election, failure, communication cost)
 ```
+
+### Correctness validation
+
+```sh
+make correctness  # short deterministic consensus-execution checks per
+                  # implementation (sequential/concurrent/fault scenarios)
+./bin/runner correctness --only nvb   # one implementation only
+./bin/runner correctness --requests 5000   # more requests per test
+```
+
+Results land in `lab/results/correctness/` (`correctness.json` plus per-test
+raw directories). The harness is independent of the performance benchmark:
+it issues a fixed number of deterministic requests, collects every replica's
+state snapshot over a read-only admin RPC, and checks for missing or
+duplicate application, agreement among surviving replicas, and recovery of
+the committed state after Raft restarts.
 
 ### Generating the report
 
@@ -191,8 +230,11 @@ experiments are shown as "Experiment not yet run." instead of failing.
 - **Local bridge networking**: no WAN latency; wide-area behaviour is not
   captured.
 - **Implementation-specific behaviour**: results reflect the upstream
-  `efficient/epaxos` and `hashicorp/raft` implementations, not the protocols
-  in general.
+  `efficient/epaxos`, `nvanbenschoten/epaxos`, `hashicorp/raft`, and
+  `go.etcd.io/raft` implementations, not the protocols in general. The
+  implementation-sensitivity and communication-cost experiments quantify how
+  much of the measured difference is implementation-level rather than
+  protocol-level.
 - **Representative protocols**: Raft and EPaxos are representative of
   leader-based and leaderless consensus respectively; they are not universal
   representatives of all protocols in each category.

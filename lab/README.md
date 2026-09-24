@@ -7,26 +7,33 @@ the interpretation of the measurements belongs to the paper in `../paper/`.
 
 The full experiment matrix has been run and processed: `results/` holds 1,302
 raw runs (1,290 included after the documented contamination rule; 12 excluded
-and replaced) across 129 configurations and six families, with 10 repetitions
-per configuration, together with the processed metrics, the figures, and the
-self-contained HTML report.
+and replaced) across 129 configurations and seven families, with 10
+repetitions per configuration, together with the processed metrics, the
+figures, and the self-contained HTML report. Each protocol is also evaluated
+through a second, independent implementation (etcd Raft, nvb EPaxos) in the
+sensitivity and communication-cost experiments, and a correctness harness
+(`runner correctness`) verifies consistent consensus execution for all four
+implementations.
 
 ## Layout
 
 ```
 lab/
 ├── README.md              this file
-├── Makefile               build / smoke / matrix / report entry points
+├── Makefile               build / smoke / matrix / report / correctness entry points
 ├── upstream/              vendored upstream consensus implementations
 │   ├── epaxos/            efficient/epaxos (pinned commit, see VERSIONS.md)
+│   ├── nvb-epaxos/        nvanbenschoten/epaxos (pinned commit, vendored)
 │   └── raft/              github.com/hashicorp/raft (pinned v1.7.3, module dep)
 ├── adapters/raft/         thin adapter around HashiCorp Raft (no consensus logic)
+├── adapters/etcdraft/     adapter around go.etcd.io/raft (no consensus logic)
+├── adapters/nvbepaxos/    adapter around nvanbenschoten/epaxos (no consensus logic)
 ├── master/raft/           coordination service for Raft runs (leader reporting only)
 ├── client/                common benchmark client (both protocols, one wire protocol)
 ├── monitor/               host-side per-container resource sampler
-├── runner/                experiment runner: build, run, matrix, smoke
+├── runner/                experiment runner: build, run, matrix, smoke, correctness
 ├── report/                processing + figure + HTML report generation (Python)
-├── configs/               explicit experiment configurations (matrix.json, smoke.json)
+├── configs/               explicit experiment configurations (matrix.json, smoke.json, sensitivity.json, commcost.json)
 ├── docker/                lab runtime image
 ├── internal/              shared packages (wire protocol, state, config)
 └── results/
@@ -50,26 +57,27 @@ lab/
              │                       │
        ┌─────▼─────┐           ┌─────▼─────┐
        │   Raft    │           │  EPaxos   │
-       │  Adapter  │           │  Upstream │
+       │  Adapters │           │  Adapters │
        └─────┬─────┘           └─────┬─────┘
              │                       │
-       HashiCorp Raft          efficient/epaxos
+   HashiCorp Raft / etcd raft   efficient/epaxos / nvb epaxos
 ```
 
 - **One client** speaks the upstream EPaxos `genericsmr` wire protocol
   (`PROPOSE` → `ProposeReplyTS`) to both protocols. The workload generator
   (op mix, key distribution, timing) is identical; only endpoint selection
   differs and that is protocol-intrinsic: Raft sends every request to the
-  leader reported by HashiCorp Raft; EPaxos spreads requests round-robin
+  leader reported by the raft master; EPaxos spreads requests round-robin
   across replicas.
-- **Raft adapter** (`adapters/raft/`) only converts benchmark requests into
-  state-machine commands, calls `raft.Raft.Apply`, waits for the future, and
-  returns the response. HashiCorp Raft performs leader election, log
-  replication, quorum, commit, term management, and state transitions. The
-  adapter reports the leader chosen by HashiCorp Raft (`raft.Raft.Leader`)
-  to the raft master; it never elects or selects a leader.
-- **EPaxos** uses the upstream `efficient/epaxos` server and master
-  unchanged (`-e -exec -dreply`). Only external orchestration is added.
+- **Raft adapters** (`adapters/raft/`, `adapters/etcdraft/`) only convert
+  benchmark requests into state-machine commands, submit them to the raft
+  core, and return the response. HashiCorp Raft and go.etcd.io/raft perform
+  leader election, log replication, quorum, commit, term management, and
+  state transitions. The adapters report the leader chosen by the raft core
+  to the raft master; they never elect or select a leader.
+- **EPaxos adapters** use the upstream `efficient/epaxos` server and master
+  unchanged (`-e -exec -dreply`) and a lab adapter around
+  `nvanbenschoten/epaxos`. Only external orchestration is added.
 - **Resource monitoring** runs on the host: each replica is its own
   container (own network namespace), so per-replica network RX/TX is read
   from `/proc/<pid>/net/dev`, CPU from cgroup v2 `cpu.stat`, and RSS from
@@ -82,6 +90,7 @@ lab/
 cd lab
 make build        # Go binaries + upstream EPaxos + docker image
 make smoke        # staged smoke tests (build, clusters, requests, workload, failures, metrics)
+make correctness  # correctness-validation harness (18 deterministic tests, all 4 implementations)
 make matrix       # full experiment matrix (hours)
 make report       # process raw results + generate figures + HTML report
 ```
@@ -152,6 +161,24 @@ conditions executed in reproducibly randomized blocks).
   time from the end of the isolation window (decoupled from the injection).
 - **Failure**: Raft leader failure, Raft follower failure, EPaxos replica
   failure, under sustained write load.
+- **Communication cost**: a fixed one-way latency (0, 1, 3, 5, 10 ms) is
+  injected into every inter-replica message, optionally with jitter (0, 5,
+  10, 50, 100 % of the cost at the 5 ms level), for all four
+  implementations.
+
+### Correctness validation
+
+The correctness harness (`runner correctness`, `make correctness`) is
+independent of the performance benchmark. For each of the four
+implementations it runs short deterministic tests at concurrency 1, 8, and
+32, plus fault scenarios (Raft follower/leader kill-restart, EPaxos replica
+kill-restart). Each request writes its own key (the request id) with a
+deterministic value, so the expected final state is exactly one entry per
+replied request. The harness collects every replica's state snapshot over a
+read-only admin RPC and checks for missing or duplicate application,
+agreement among surviving replicas, and recovery of the committed state
+after Raft restarts. Results land in `results/correctness/`
+(`correctness.json` plus per-test raw directories).
 
 Every run records `metadata.json` (exact config, versions, host,
 read-semantics), raw `requests.csv` (per-request metadata), raw
