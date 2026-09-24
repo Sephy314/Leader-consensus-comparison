@@ -508,6 +508,71 @@ def paper_conflict_figures(metrics, outdir):
     save_pub(fig, os.path.join(outdir, "conflict", "throughput-conflict-ratio"))
 
 
+def paper_commcost_figures(metrics, outdir):
+    """Throughput and p50 latency vs one-way communication cost, per
+    implementation (the commcost matrix runs all four). The jitter=0 points
+    are plotted so the x axis is the cost; the jitter sweep is a separate
+    figure at the 5 ms cost level."""
+    rows = [m for m in metrics
+            if m["experiment"] == "commcost" and m["failure_mode"] == "none"]
+    rows = select_included(rows)
+    if not rows:
+        return
+
+    def impl_of(m):
+        return m.get("implementation") or ("hashicorp" if m["protocol"] == "raft" else "original")
+
+    impls = sorted({impl_of(m) for m in rows})
+    colors = {"hashicorp": COLORS["raft"], "etcd": "tab:orange",
+              "original": COLORS["epaxos"], "nvb": "tab:purple"}
+    labels = {"hashicorp": "Raft (HashiCorp)", "etcd": "Raft (etcd)",
+              "original": "EPaxos (original)", "nvb": "EPaxos (nvb)"}
+
+    # Cost sweep (jitter = 0).
+    for metric, ylabel, fname in (
+        ("throughput_req_s", "Throughput (req/s)", "throughput-commcost"),
+        ("latency_ns_p50", "Median latency (ms)", "latency-commcost"),
+    ):
+        fig, ax = plt.subplots(figsize=(3.4, 2.5))
+        for impl in impls:
+            pts = sorted(
+                ((int(m.get("comm_cost_ms", 0)), fnum(m[metric]))
+                 for m in rows if impl_of(m) == impl
+                 and int(m.get("comm_jitter_pct", 0)) == 0),
+                key=lambda kv: kv[0],
+            )
+            pts = [(c, v / 1e6 if "latency" in metric else v) for c, v in pts if v is not None]
+            if pts:
+                ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o",
+                        color=colors.get(impl, "tab:gray"), label=labels.get(impl, impl))
+        ax.set_xlabel("One-way communication cost (ms)")
+        ax.set_ylabel(ylabel)
+        ax.set_xticks([0, 1, 3, 5, 10])
+        ax.legend(fontsize=7)
+        fig.tight_layout()
+        save_pub(fig, os.path.join(outdir, "commcost", fname))
+
+    # Jitter sweep at cost = 5 ms.
+    fig, ax = plt.subplots(figsize=(3.4, 2.5))
+    for impl in impls:
+        pts = sorted(
+            ((int(m.get("comm_jitter_pct", 0)), fnum(m["throughput_req_s"]))
+             for m in rows if impl_of(m) == impl
+             and int(m.get("comm_cost_ms", 0)) == 5),
+            key=lambda kv: kv[0],
+        )
+        pts = [(j, v) for j, v in pts if v is not None]
+        if pts:
+            ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o",
+                    color=colors.get(impl, "tab:gray"), label=labels.get(impl, impl))
+    ax.set_xlabel("Jitter (% of 5 ms cost)")
+    ax.set_ylabel("Throughput (req/s)")
+    ax.set_xticks([0, 5, 10, 50, 100])
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    save_pub(fig, os.path.join(outdir, "commcost", "throughput-commcost-jitter"))
+
+
 def paper_resource_figures(resources, outdir):
     """Mean CPU, peak RSS, and mean network rates per protocol."""
     if not resources:
@@ -795,6 +860,7 @@ def main():
     paper_concurrency_figures(metrics, args.figures)
     paper_workload_figures(metrics, args.figures)
     paper_conflict_figures(metrics, args.figures)
+    paper_commcost_figures(metrics, args.figures)
     paper_resource_figures(resources, args.figures)
     paper_per_replica_cpu(resources, args.figures)
     paper_failure_figures(failures, metrics, args.figures)
