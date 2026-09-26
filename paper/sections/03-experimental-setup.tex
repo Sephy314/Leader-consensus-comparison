@@ -120,7 +120,7 @@ networks, and volumes. The harness verifies before execution that no
 leftover containers, networks, volumes, or ports remain, and verifies
 teardown afterwards; a run that fails those checks is recorded as an invalid
 attempt rather than silently reused. Configurations are scheduled by blocked
-randomisction: each repetition block contains every configuration exactly
+randomisation: each repetition block contains every configuration exactly
 once in a seeded shuffled order, and each repetition uses an independent
 recorded workload seed.
 
@@ -160,7 +160,7 @@ representations. Each implementation is tested at concurrency 1, 8, and 32
 and under the failure scenarios of the failure family, including a restarted
 Raft replica recovering its committed state from its persistent log. This
 checks state convergence for the tested scenarios; it is not a general
-linearizability proof.
+linearisability proof.
 
 \subsection{Experimental Integrity and Statistical Analysis}
 

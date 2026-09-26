@@ -88,11 +88,11 @@ as an implementation-independent recovery time for Raft.
 
 The correctness harness verifies state convergence under the tested
 workloads and restart scenarios but does not constitute a formal
-verification of consensus correctness or establish general linearizability.
+verification of consensus correctness or establish general linearisability.
 In particular, the tested workloads do not exercise every possible pattern
 of conflicting operations and message reordering that could expose an
 ordering violation. The harness writes a distinct key per request, so it
-does not exercise concurrent writes to the same key, and no linearizability
+does not exercise concurrent writes to the same key, and no linearisability
 checker was run against the recorded histories; it is therefore a
 convergence check rather than an independent test of operation-order
 semantics under contention.

@@ -14,7 +14,7 @@ Taken together, the findings do not support a universal performance ordering bet
 
 The study also illustrates a methodological consideration for empirical consensus research: controlled follow-up experiments, including persistence matching and communication-cost injection, provide useful evidence for determining whether an observed difference is robust to changes in the surrounding implementation environment, and performance is most informative when analysed as a function of controlled system conditions rather than reduced to a single throughput or latency figure.
 
-Several limitations constrain the generalisation of these findings: the experiments were conducted in a single-host containerised environment with operating-system-level network emulation, a limited range of cluster sizes, and a closed-loop workload, and the correctness experiments verified convergence rather than linearizability.
+Several limitations constrain the generalisation of these findings: the experiments were conducted in a single-host containerised environment with operating-system-level network emulation, a limited range of cluster sizes, and a closed-loop workload, and the correctness experiments verified convergence rather than linearisability.
 
 Future work could extend the methodology to multi-host and geographically distributed environments, additional independent implementations, larger replica sets, and workloads with stronger contention and more diverse access patterns. Profiling at the storage, transport, scheduling, and application layers could further separate protocol-level behaviour from implementation overhead.
 
