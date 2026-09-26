@@ -19,10 +19,9 @@ Table~\ref{tab:scaling}). The EPaxos reduction at seven and nine replicas
 is partly an artefact of client timeouts rather than a property of the
 protocol's scaling: each timed-out request occupies a client worker for the
 full client timeout, and the closed-loop accounting including that term
-matches every run at those sizes. The available instrumentation does not
-identify the execution path responsible for the timeouts, so the lower
-EPaxos throughput at those sizes should not be read as a scaling
-characteristic of the protocol.
+matches every run at those sizes. The lower EPaxos throughput at those
+sizes should therefore not be read as a scaling characteristic of the
+protocol.
 
 Client concurrency produced a different pattern: EPaxos gained considerably
 more from high concurrency than Raft, and the gap was widest at the highest

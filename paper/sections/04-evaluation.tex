@@ -3,16 +3,14 @@
 \label{sec:evaluation}
 
 Unless otherwise stated, reported point estimates are medians over ten
-independent repetitions. Unless otherwise specified, results use three
-replicas, 100\,\% writes, and client concurrency 32. All figures are
-generated from the processed benchmark data by \texttt{lab/report/figures.py}.
-Figures show medians across repetitions, with individual repetition values
-overlaid where available.
-
-Unless otherwise stated, results describe the evaluated implementations
-under the experimental configuration of Section~\ref{sec:setup}. Differences
-should not be interpreted as protocol-level causal effects unless the
-experiment directly isolates the corresponding mechanism.
+independent repetitions, results use three replicas, 100\,\% writes, and
+client concurrency 32, and results describe the evaluated implementations
+under the experimental configuration of Section~\ref{sec:setup}. All
+figures are generated from the processed benchmark data by
+\texttt{lab/report/figures.py} and show medians across repetitions, with
+individual repetition values overlaid where available. Differences should
+not be interpreted as protocol-level causal effects unless the experiment
+directly isolates the corresponding mechanism.
 
 \subsection{Throughput and Scalability}
 
@@ -26,8 +24,7 @@ Relative to the three-replica measurement within this experiment family,
 the nine-replica median was 62\,\% lower for EPaxos and 51\,\% lower for
 Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at
 five, 1.12 at seven, and 0.95 at nine replicas. Thus, the measured
-throughput difference varied with replica count, and no statistically
-significant difference was detected at nine replicas.
+throughput difference varied with replica count.
 
 We report medians rather than means because a small number of repetitions
 stalled. Across the entire dataset (1{,}302 runs), eight repetitions
@@ -70,8 +67,8 @@ responsible for the timeouts.
 
 The same nominal configuration (three replicas, 100\,\% writes, and
 concurrency 32) also occurs independently in several other steady-state
-experiment families. These repeated measurements provide an indication of
-run-to-run variability. The four family medians were 4{,}350, 4{,}367,
+experiment families, providing an indication of run-to-run variability.
+The four family medians were 4{,}350, 4{,}367,
 4{,}482, and 4{,}440\,req/s for Raft, and 5{,}291, 5{,}287, 5{,}175, and
 5{,}249\,req/s for EPaxos. The EPaxos medians differed by approximately
 2\,\% across these measurements, and the Raft medians by approximately
@@ -104,19 +101,12 @@ demonstrate a hard CPU capacity ceiling.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\columnwidth]{figures/throughput-scaling.pdf}
-\caption{Throughput by replica count at 100\,\% writes and
-concurrency 32. Points show individual repetitions; the line marks the
-median.}
+\includegraphics[width=0.78\columnwidth]{figures/throughput-scaling-conc.pdf}
+\caption{Throughput by replica count at 100\,\% writes. EPaxos at client
+concurrency 32 (the recorded comparison) and Raft at concurrency 32, 128,
+and 256. The replica-scaling penalty persists at every concurrency level.
+Points show individual repetitions; lines mark the medians.}
 \label{fig:throughput-scaling}
-\end{figure}
-
-\begin{figure}[!htbp]
-\centering
-\includegraphics[width=0.58\columnwidth]{figures/throughput-scaling-conc.pdf}
-\caption{Raft throughput by replica count at 100\,\% writes and client
-concurrency 32, 128, and 256. The replica-scaling penalty persists at
-every concurrency level.}
 \label{fig:throughput-scaling-conc}
 \end{figure}
 
@@ -191,13 +181,11 @@ number of replicas increases. At three replicas, the median latency was
 range of 5.4--5.6\,ms across the tested replica counts
 (Table~\ref{tab:scaling}b).
 
-The evaluated Raft implementation therefore showed a larger change in
-median latency with replica count than the evaluated EPaxos implementation
-under this workload. The Raft p50 increased monotonically with replica
+The Raft p50 therefore increased monotonically with replica
 count, whereas the EPaxos p50 remained within the 5.4--5.6\,ms range.
 
-The p50 values should be read together with the tail. The p99 was 21.4\,ms
-for Raft and 23.8\,ms for EPaxos at three replicas, and increased to
+The p50 values should be read together with the tail: the p99 was 21.4\,ms
+for Raft and 23.8\,ms for EPaxos at three replicas, increasing to
 26--29\,ms for Raft at seven to nine replicas while remaining at
 14--16\,ms for EPaxos. The median of the per-repetition p50 values reduces
 the influence of the stalled repetitions described earlier.
@@ -217,10 +205,9 @@ concurrency. At concurrency 1, median latency was 2.8\,ms for Raft and
 6.9\,ms and 5.6\,ms. At concurrency 256, they were 12.1\,ms and
 5.6\,ms.
 
-The relative latency ordering therefore changed with concurrency. Raft had
+The relative latency ordering therefore changed with concurrency: Raft had
 the lower median at concurrency 1, while EPaxos had the lower median at
-concurrency 32 and above. At concurrency 256, the measured p50 was
-5.6\,ms for EPaxos and 12.1\,ms for Raft.
+concurrency 32 and above.
 
 As with throughput, the same nominal configuration (three replicas,
 concurrency 32) is measured by several experiment families. With medians,
@@ -235,7 +222,7 @@ of 12.1\,ms was close to $N/X$ (256/19{,}278 $\approx$ 13.3\,ms), while the
 EPaxos p50 of 5.6\,ms was below $N/X$ (256/41{,}069 $\approx$ 6.2\,ms).
 This difference is compatible with a response-time distribution whose
 median is below its mean. We report p50, p95, and p99 in the processed
-dataset and use p50 here as the central-tendency summary.
+dataset, using p50 here as the central-tendency summary.
 
 At seven and nine replicas, the EPaxos p50 of 5.4--5.5\,ms was substantially
 below $N/X$ (32/2{,}002--2{,}903 $\approx$ 11.0--16.0\,ms). As described in
@@ -312,9 +299,9 @@ requests. Killing a Raft follower produced a gap of 0.02--0.04\,s with no
 failed requests. Killing an EPaxos replica produced a gap of
 0.02--0.09\,s with 10--106 failed requests.
 
-All runs completed successfully according to the experiment harness. The
+All runs completed successfully according to the experiment harness; the
 reported failed requests correspond to requests issued during the
-transition and are therefore distinct from run-level failure.
+transition and are distinct from run-level failure.
 
 The longer availability gap following Raft leader termination coincided
 with the configured Raft election and request-retry behaviour. In contrast,
@@ -378,8 +365,8 @@ independent verification of operation-order semantics.
 \subsection{Communication Cost}
 
 The communication-cost family evaluates sensitivity to additional
-application-level one-way message delay. It should therefore be interpreted
-as a controlled communication-condition experiment rather than as a direct
+application-level one-way message delay and should be interpreted as a
+controlled communication-condition experiment rather than a direct
 simulation of a physical network.
 
 Figure~\ref{fig:delay-merged}a shows mean throughput at each delay
@@ -533,7 +520,7 @@ application-level delay (HashiCorp Raft at 28.4\,\% and nvb EPaxos at
 19.2\,\%) retain less under OS-level emulation (18.1\,\% and 9.0\,\%),
 consistent with the emulation delaying each inter-replica exchange in both
 directions rather than a single send. The two mechanisms are not
-interchangeable, and the controlled family is the evidence used here for
+interchangeable; the controlled family is the evidence used here for
 delay sensitivity.
 
 \subsection{Conflict Validation}

@@ -17,9 +17,9 @@ replicas.
 The larger cluster sizes also introduce physical resource contention that
 cannot be completely separated from the replica-count effect. Nine
 replicas at 2.0 CPU requests each, together with the client and master,
-request 21 CPUs against a 12-core host. In addition, each replica is
-allocated 2.0 CPUs while \texttt{GOMAXPROCS}=4, so Go scheduler parallelism
-exceeds the container CPU quota. Consequently, the 7- and 9-replica
+request 21 CPUs against a 12-core host, and each replica is allocated 2.0
+CPUs while \texttt{GOMAXPROCS}=4, so Go scheduler parallelism exceeds the
+container CPU quota. Consequently, the 7- and 9-replica
 configurations should be interpreted as measurements under a
 resource-constrained local environment rather than as isolated evidence of
 protocol-level scaling. These configurations are retained because they
@@ -50,10 +50,7 @@ implementation is evaluated only in its supported in-memory configuration.
 The EPaxos implementation is additionally modified to support the
 dependency-set sizes required by the 7- and 9-replica configurations.
 Results at those sizes therefore combine the protocol behaviour with the
-cost of the required implementation extension. This further motivates
-interpreting the larger-cluster results as resource- and
-implementation-sensitive measurements rather than as isolated estimates of
-protocol scaling.
+cost of the required implementation extension.
 
 The controlled network-delay experiment applies fixed one-way delay to
 inter-replica traffic using operating-system-level network emulation rather
@@ -115,7 +112,7 @@ The suite contains many configurations and pairwise comparisons, and no
 multiplicity correction is applied (Section~\ref{sec:setup}): a $p$-value
 quoted in the evaluation is the uncorrected value for that single
 comparison. Tests are reported next to the family they belong to, so the
-number of comparisons behind a claim is visible, and we rely on comparisons
+number of comparisons behind a claim is visible; we rely on comparisons
 that are well separated rather than on borderline significance. The
 separation is wide enough that the choice does not matter: every result
 reported as significant is at $p\le0.001$, and no family here contains more
