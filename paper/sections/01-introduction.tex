@@ -9,8 +9,7 @@ this coordination. Leader-based protocols such as Raft~\cite{ongaro2014raft}
 direct client operations through an elected leader, whereas leaderless
 protocols such as EPaxos~\cite{moraru2013epaxos} allow replicas to propose
 operations independently and determine the dependencies required for
-consistent execution. Section~\ref{sec:background} develops this distinction
-and reviews related empirical work.
+consistent execution.
 
 These architectural differences motivate empirical comparison, but a direct
 protocol-level ranking is difficult to interpret. Measured throughput and
@@ -20,24 +19,13 @@ implementation mechanisms including persistence, request processing,
 scheduling, transport, and message handling. The presence or absence of a
 leader is therefore an important structural property, but it does not by
 itself determine the performance or failure behaviour of a concrete
-implementation. A measured difference between two implementations cannot
+implementation, so a measured difference between two implementations cannot
 automatically be attributed to the consensus algorithm alone.
 
-This distinction matters for experimental studies of consensus: a
-benchmark that varies only the protocol while holding a single
-implementation and workload fixed cannot establish whether a measured
-difference is robust to changes in system conditions or implementation
-choices, whereas evaluating multiple implementations and controlled
-operating conditions can reveal which observations remain stable and which
-are specific to the systems being measured.
-
 In this paper, we experimentally compare Raft and EPaxos as representative
-leader-based and leaderless consensus protocols. We measure throughput,
+leader-based and leaderless consensus protocols, measuring throughput,
 latency, resource utilisation, and failure behaviour under controlled
-variation of system and workload conditions, and we additionally evaluate
-multiple implementations and matched persistence configurations to examine
-whether the observed relationship between the two protocol families remains
-stable when implementation-level mechanisms are changed.
+variation of system and workload conditions.
 
 We investigate the following research questions:
 
@@ -56,37 +44,30 @@ to the protocol families themselves?
 
 \end{itemize}
 
-To answer these questions, we contribute a reproducible experimental
-framework that executes both protocol families in a common containerised
-environment using a shared client harness and workload generator. The
-complete benchmark and analysis artefacts are released at
+We contribute a reproducible experimental framework that executes both
+protocol families in a common containerised environment using a shared
+client harness and workload generator. The complete benchmark and analysis
+artefacts are released at
 \url{https://github.com/Sephy314/Leader-consensus-comparison}.
 
 We further contribute a sensitivity-oriented evaluation rather than a
-single-configuration benchmark. The experiment suite varies replica count,
-client concurrency, read/write composition, conflict rate, failure mode,
-and communication conditions, allowing performance relationships to be
-examined as functions of controlled system and workload changes.
+single-configuration benchmark, varying replica count, client concurrency,
+read/write composition, conflict rate, failure mode, and communication
+conditions.
 
 Finally, we provide an implementation-level analysis using multiple
 implementations of the two protocol families and matched persistence
-configurations. The results show that implementation mechanisms can
-materially change the measured performance relationship and, under matched
-storage conditions, can reverse the ordering observed in the baseline
-configuration.
+configurations, showing that implementation mechanisms can materially
+change the measured performance relationship and, under matched storage
+conditions, reverse the ordering observed in the baseline configuration.
 
-The experiments are conducted in a local containerised environment.
-Accordingly, the reported values are measurements of the evaluated
-implementations under the specified experimental conditions rather than
-universal estimates of production performance. In particular, the
-communication experiments provide controlled evidence about sensitivity to
-added communication cost, but do not constitute a physical wide-area
-deployment.
+The experiments are conducted in a local containerised environment, so the
+reported values are measurements of the evaluated implementations under the
+specified experimental conditions rather than universal estimates of
+production performance.
 
-The remainder of the paper is organised as follows.
-Section~\ref{sec:background} reviews consensus protocols and related work.
-Section~\ref{sec:setup} describes the Consensus Lab and experimental
-methodology. Section~\ref{sec:evaluation} presents the experimental results,
-and Section~\ref{sec:discussion} interprets them with respect to the research
-questions. Section~\ref{sec:threats} discusses threats to validity, and
-Section~\ref{sec:conclusion} concludes the study.
+The remainder of the paper reviews related work (Section~\ref{sec:background}),
+describes the experimental methodology (Section~\ref{sec:setup}), presents and
+interprets the results (Sections~\ref{sec:evaluation} and~\ref{sec:discussion}),
+and discusses threats to validity and conclusions (Sections~\ref{sec:threats}
+and~\ref{sec:conclusion}).
