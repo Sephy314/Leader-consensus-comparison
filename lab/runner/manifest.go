@@ -98,6 +98,11 @@ type replacementPlan struct {
 // attempt whose host telemetry was flagged contaminated, or one that failed.
 // A directory without metadata.json is a run left by a killed runner and is
 // re-run by the matrix itself, not here.
+//
+// An attempt that a later attempt of the same (configuration, repetition)
+// already supersedes is skipped, so running the replacement twice does not
+// pile up attempts: the dataset's observation is the highest attempt, and only
+// that one is replaced if it is still flagged.
 func runsToReplace(root string, scheduleSeed int64) ([]replacementPlan, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -118,30 +123,104 @@ func runsToReplace(root string, scheduleSeed int64) ([]replacementPlan, error) {
 		if status == "success" && len(anomalies) == 0 {
 			continue
 		}
+		if superseded(entries, runIDFor(metaConfig(meta), intField(meta, "repetition")), e.Name()) {
+			continue
+		}
 		reason := "contaminated: " + joinAnomalies(anomalies)
 		if status != "success" {
 			reason = "failed: " + strField(meta, "failure_reason")
 		}
-		sched := schedInfo{
-			seed:        scheduleSeed,
-			rerunOf:     e.Name(),
-			rerunReason: reason,
-		}
-		if s, ok := meta["schedule"].(map[string]any); ok {
-			sched.block = intField(s, "block")
-			sched.seq = intField(s, "sequence_index")
-			if v := int64Field(s, "schedule_seed"); v != 0 {
-				sched.seed = v
-			}
-		}
-		out = append(out, replacementPlan{
-			id:    e.Name(),
-			cfg:   metaConfig(meta),
-			rep:   intField(meta, "repetition"),
-			sched: sched,
-		})
+		out = append(out, newReplacementPlan(e.Name(), reason, scheduleSeed, meta))
 	}
 	return out, nil
+}
+
+// superseded reports whether a later attempt of the same run exists under the
+// same root. baseID is the run ID of the first attempt, so the attempts of one
+// (configuration, repetition) are baseID, baseID-2, baseID-3, ...
+func superseded(entries []os.DirEntry, baseID, id string) bool {
+	own := 1
+	if id != baseID {
+		n, err := strconv.Atoi(strings.TrimPrefix(id, baseID+"-"))
+		if err != nil {
+			return false // not an attempt of this run: leave it alone
+		}
+		own = n
+	}
+	prefix := baseID + "-"
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimPrefix(e.Name(), prefix)); err == nil && n > own {
+			return true
+		}
+	}
+	return false
+}
+
+// runsListedToReplace reads a newline-separated list of completed run IDs (an
+// optional tab-separated reason may follow each ID) and builds the same
+// replacement plans as runsToReplace.
+//
+// It exists for repetitions that are anomalous without being flagged: a run
+// can complete at a small fraction of its configuration's median without any
+// request failing and without crossing a host-telemetry threshold, which the
+// contamination and failure rules do not see. The selection is made from the
+// processed data by report/stalled_runs.py, which owns the metric
+// definitions; the runner only executes the list it is handed, so the rule
+// stays in one place and no run is picked by hand.
+func runsListedToReplace(root, listPath string, scheduleSeed int64) ([]replacementPlan, error) {
+	data, err := os.ReadFile(listPath)
+	if err != nil {
+		return nil, err
+	}
+	var out []replacementPlan
+	seen := map[string]bool{}
+	for i, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		id, reason, _ := strings.Cut(line, "\t")
+		id, reason = strings.TrimSpace(id), strings.TrimSpace(reason)
+		if id == "" {
+			continue
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("%s:%d: %s is listed twice", listPath, i+1, id)
+		}
+		seen[id] = true
+		meta := loadMeta(filepath.Join(root, id))
+		if meta == nil {
+			return nil, fmt.Errorf("%s:%d: %s is not a completed run under %s", listPath, i+1, id, root)
+		}
+		if reason == "" {
+			reason = "listed for replacement by " + filepath.Base(listPath)
+		}
+		out = append(out, newReplacementPlan(id, reason, scheduleSeed, meta))
+	}
+	return out, nil
+}
+
+// newReplacementPlan describes the replacement of one completed run: the
+// replacement keeps the original's repetition and position in the schedule,
+// including the schedule seed the original was run under.
+func newReplacementPlan(id, reason string, scheduleSeed int64, meta map[string]any) replacementPlan {
+	sched := schedInfo{seed: scheduleSeed, rerunOf: id, rerunReason: reason}
+	if s, ok := meta["schedule"].(map[string]any); ok {
+		sched.block = intField(s, "block")
+		sched.seq = intField(s, "sequence_index")
+		if v := int64Field(s, "schedule_seed"); v != 0 {
+			sched.seed = v
+		}
+	}
+	return replacementPlan{
+		id:    id,
+		cfg:   metaConfig(meta),
+		rep:   intField(meta, "repetition"),
+		sched: sched,
+	}
 }
 
 // rerunFlaggedContaminated re-runs every completed run in results/raw that
@@ -155,8 +234,26 @@ func rerunFlaggedContaminated(scheduleSeed int64) error {
 	if err != nil {
 		return err
 	}
+	return runReplacements(plans, scheduleSeed)
+}
+
+// rerunListed replaces the runs named in a list file, using the same attempt
+// numbering and the same "the original is kept" rule as the contaminated
+// replacements. The list is produced by report/stalled_runs.py from the
+// processed data.
+func rerunListed(listPath string, scheduleSeed int64) error {
+	plans, err := runsListedToReplace(filepath.Join(resultsDir(), "raw"), listPath, scheduleSeed)
+	if err != nil {
+		return err
+	}
+	return runReplacements(plans, scheduleSeed)
+}
+
+// runReplacements executes one replacement run per plan and rewrites the
+// dataset's execution manifest.
+func runReplacements(plans []replacementPlan, scheduleSeed int64) error {
 	if len(plans) == 0 {
-		fmt.Println("no contaminated or failed runs to replace")
+		fmt.Println("no runs to replace")
 		return nil
 	}
 	env := measuredEnv()

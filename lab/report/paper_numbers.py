@@ -76,8 +76,10 @@ def main():
     line("")
 
     # --- Scaling table (Table 1) ---
-    line("## Table 1: Throughput by replica count (100% write, c32)")
+    line("## Table 1: Throughput by replica count (100% write, c32) [mean of the ten repetitions]")
     line("")
+    line("The paper reports the median of the same values; compare with")
+    line("`results/processed/config-summary.json` before flagging a mismatch.")
     line("| Replicas | Raft mean | EPaxos mean | EPaxos/Raft |")
     line("|---|---|---|---|")
     for n in ("3", "5", "7", "9"):
@@ -95,8 +97,9 @@ def main():
     line("")
 
     # --- Latency table (Table 2) ---
-    line("## Table 2: Median (p50) latency by replica count (100% write, c32)")
+    line("## Table 2: p50 latency by replica count (100% write, c32) [mean of the ten per-run p50 values]")
     line("")
+    line("The paper reports the median of the same per-run p50 values.")
     line("| Replicas | Raft p50 (ms) | EPaxos p50 (ms) |")
     line("|---|---|---|")
     for n in ("3", "5", "7", "9"):

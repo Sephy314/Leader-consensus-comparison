@@ -229,6 +229,28 @@ make manifest           # rebuild results/execution-manifest.json from the compl
 make rerun-contaminated # replace attempts that host telemetry flagged contaminated
 ```
 
+A run can also be anomalous without being flagged: it completes at a small
+fraction of its configuration's median, fails no request, and stays below
+every host-telemetry threshold (host load average, telemetry gap, host
+suspend). `make rerun-family` applies both replacement rules to one family
+subtree: it processes the dataset, replaces the attempts host telemetry
+flagged, and replaces the repetitions listed by a second rule declared in one
+place (`report/stalled_runs.py`: included repetitions below `STALL_BELOW`,
+default 0.7, times their own condition's median). The list is written to
+`results/<base>/rerun-ids.txt`.
+
+```sh
+make rerun-family BASE=conflict_validation SEED=20260925
+make conflict-validation-report     # reprocess the family with the replacements
+```
+
+Either way the original attempt is never deleted: the replacement is a new
+attempt that records `rerun_of` and `rerun_reason`, and
+`report/process.py:mark_included` keeps the highest attempt whatever its
+value, so no observation is chosen on its outcome. `report/stalled_runs.py`
+refuses to derive a list from processed data older than the newest run, which
+would name an attempt that is no longer included.
+
 `metadata.json` is written last, so a directory without it is not a completed
 run: it is ignored by the report and re-run in place. `results/execution-manifest.json`
 records the actual execution order, every batch ID, the inter-run gaps, the

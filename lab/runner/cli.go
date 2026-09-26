@@ -219,12 +219,19 @@ func cmdMatrix(args []string) error {
 	scheduleSeed := fs.Int64("schedule-seed", 1, "seed for the blocked-randomization execution schedule (recorded in the manifest)")
 	skipExisting := fs.Bool("skip-existing", false, "skip runs that already completed in an earlier batch (resume an interrupted matrix)")
 	rerun := fs.Bool("rerun-contaminated", false, "re-run only the attempts flagged contaminated by host anomalies (the originals are kept)")
+	rerunIDs := fs.String("rerun-ids", "", "re-run the completed runs named in this file (one run ID per line, optional tab-separated reason) as new attempts")
 	base := fs.String("results-base", "", "results subtree to write to (empty = the primary dataset)")
 	dryRun := fs.Bool("dry-run", false, "expand the matrix, print the run IDs and configuration that would be executed, and exit without running anything")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	resultsBase = *base
+	if *rerun && *rerunIDs != "" {
+		return fmt.Errorf("--rerun-contaminated and --rerun-ids are mutually exclusive")
+	}
+	if *rerunIDs != "" {
+		return rerunListed(*rerunIDs, *scheduleSeed)
+	}
 	if *rerun {
 		return rerunFlaggedContaminated(*scheduleSeed)
 	}

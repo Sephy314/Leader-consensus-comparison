@@ -173,6 +173,87 @@ func TestRunsToReplaceSelectsFlaggedAttempts(t *testing.T) {
 	}
 }
 
+// TestRunsListedToReplaceCoversUnflaggedStalls covers the declared-list path:
+// a run that neither failed nor tripped a host-telemetry threshold is invisible
+// to the automatic rule, so it can only be replaced when it is named in a list.
+func TestRunsListedToReplaceCoversUnflaggedStalls(t *testing.T) {
+	root := t.TempDir()
+	clean := writeFakeRun(t, root, "conflictvalidation-raft-r3-k1-x10-w100-c32-10", "success", "", false)
+
+	// The automatic rule must leave an unflagged successful run alone.
+	if plans, err := runsToReplace(root, 42); err != nil || len(plans) != 0 {
+		t.Fatalf("an unflagged successful run must not be replaced automatically: %v %v", plans, err)
+	}
+
+	list := filepath.Join(t.TempDir(), "rerun-ids.txt")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(list, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("# declared stalls\n" + clean + "\tstalled: 667 req/s = 15% of the condition median\n")
+	plans, err := runsListedToReplace(root, list, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || plans[0].id != clean {
+		t.Fatalf("want exactly %s, got %+v", clean, plans)
+	}
+	p := plans[0]
+	if p.sched.rerunOf != clean || !strings.Contains(p.sched.rerunReason, "stalled: 667 req/s") {
+		t.Errorf("replacement must record what it replaces and why: %+v", p.sched)
+	}
+	if p.sched.block != 5 || p.sched.seq != 7 || p.sched.seed != 1 {
+		t.Errorf("replacement must inherit the original schedule position: %+v", p.sched)
+	}
+
+	// A silently skipped replacement would leave the stall in the dataset, and
+	// a doubly listed run would be measured twice, so both are errors. An
+	// empty list is a no-op: with nothing to replace there is nothing to do.
+	for _, bad := range []string{"not-a-completed-run-1\n", clean + "\n" + clean + "\n"} {
+		write(bad)
+		if _, err := runsListedToReplace(root, list, 42); err == nil {
+			t.Errorf("list %q should be rejected", bad)
+		}
+	}
+	write("# nothing left to replace\n")
+	if plans, err := runsListedToReplace(root, list, 42); err != nil || len(plans) != 0 {
+		t.Errorf("an empty list should be a no-op, got %v %v", plans, err)
+	}
+}
+
+// TestRunsToReplaceSkipsSupersededAttempts covers idempotence of the automatic
+// rule: once a flagged attempt has been replaced, running the replacement again
+// must not pile a third attempt on top of it.
+func TestRunsToReplaceSkipsSupersededAttempts(t *testing.T) {
+	root := t.TempDir()
+	contaminated := writeFakeRun(t, root, "workload-raft-r3-w50-c32-2", "success", "", true)
+
+	plans, err := runsToReplace(root, 42)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("the flagged attempt should be replaced once: %v %v", plans, err)
+	}
+
+	// The replacement is a clean run of the same (configuration, repetition).
+	writeFakeRun(t, root, contaminated+"-2", "success", "", false)
+	if plans, err := runsToReplace(root, 42); err != nil || len(plans) != 0 {
+		t.Fatalf("a superseded flagged attempt must be left alone: %v %v", plans, err)
+	}
+
+	// If the replacement is itself flagged, it — not the attempt it replaced —
+	// is the one to replace.
+	writeFakeRun(t, root, contaminated+"-2", "success", "", true)
+	plans, err = runsToReplace(root, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || plans[0].id != contaminated+"-2" {
+		t.Fatalf("want the latest flagged attempt %s-2, got %+v", contaminated, plans)
+	}
+}
+
 // writeFakeRun creates a completed run directory: metadata.json plus, when
 // requested, host telemetry containing a sampling gap (the host-suspend
 // signature the contamination rule detects).

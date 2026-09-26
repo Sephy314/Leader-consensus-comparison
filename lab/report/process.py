@@ -337,9 +337,11 @@ def conflict_validation(run_dir, cfg, meta):
         "epaxos_slow_path": None,
         "epaxos_conflicted": None,
         "epaxos_counters_available": False,
+        "epaxos_counters_coverage": None,
     }
 
     path = os.path.join(run_dir, "requests.csv")
+    ok_count = 0
     if os.path.exists(path):
         total = 0
         hot = 0
@@ -350,6 +352,8 @@ def conflict_validation(run_dir, cfg, meta):
                 total += 1
                 if row.get("hot") == "1":
                     hot += 1
+                if row.get("ok") == "1":
+                    ok_count += 1
                 keys[row.get("key")] += 1
         if total:
             out["requests_observed"] = total
@@ -367,10 +371,25 @@ def conflict_validation(run_dir, cfg, meta):
                 stats = []
         usable = [s for s in stats if isinstance(s, dict) and "error" not in s and "fast_path" in s]
         if usable:
+            fast = sum(int(s.get("fast_path", 0)) for s in usable)
+            slow = sum(int(s.get("slow_path", 0)) for s in usable)
             out["epaxos_counters_available"] = True
-            out["epaxos_fast_path"] = sum(int(s.get("fast_path", 0)) for s in usable)
-            out["epaxos_slow_path"] = sum(int(s.get("slow_path", 0)) for s in usable)
+            out["epaxos_fast_path"] = fast
+            out["epaxos_slow_path"] = slow
             out["epaxos_conflicted"] = sum(int(s.get("conflicted", 0)) for s in usable)
+            # The upstream counters are zeroed whenever a client connection is
+            # accepted (genericsmr.WaitForClientConnections signals
+            # OnClientConnect, which resets happy/slow/weird/conflicted), so the
+            # values the Stats RPC returns cover only the interval since the
+            # last accepted connection -- not the measured phase. In the
+            # conflict-validation runs that interval is a near-constant ~9.5 %
+            # of the successful requests, and `epaxos_conflicted` counts
+            # replicas disagreeing on an instance's (seq, deps) per PreAccept
+            # reply, not key conflicts. The coverage is therefore recorded with
+            # the counters: a counter-derived share is a within-window
+            # indicator, never a phase census.
+            if ok_count:
+                out["epaxos_counters_coverage"] = (fast + slow) / ok_count
     return out
 
 

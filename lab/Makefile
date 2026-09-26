@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results persistence persistence-dry-run network-delay network-delay-dry-run conflict-validation conflict-validation-dry-run persistence-report network-delay-report conflict-validation-report failure-configuration resource-contention
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results persistence persistence-dry-run network-delay network-delay-dry-run conflict-validation conflict-validation-dry-run persistence-report network-delay-report conflict-validation-report rerun-family failure-configuration resource-contention
 
 help:
 	@echo "targets:"
@@ -21,6 +21,8 @@ help:
 	@echo "  run             run one experiment:  make run CFG=configs/smoke.json"
 	@echo "  matrix          run the full experiment matrix (hours); resumes an interrupted suite"
 	@echo "  rerun-contaminated  re-run the attempts flagged contaminated by host anomalies"
+	@echo "  rerun-stalled   re-run the unflagged stalled repetitions listed by report/stalled_runs.py"
+	@echo "  rerun-family    clean one family: process, then replace flagged attempts and unflagged stalls"
 	@echo "  manifest        rebuild results/execution-manifest.json from the completed runs"
 	@echo "  validate        methodology validation (randomized-order invariants) before the full suite"
 	@echo "  report          process raw results + generate figures + HTML report + paper figures"
@@ -195,6 +197,33 @@ conflict-validation-report:
 	$(PY) report/process.py --raw results/conflict_validation/raw --processed results/conflict_validation/processed
 	$(PY) report/figures.py --processed results/conflict_validation/processed --figures results/conflict_validation/figures --raw results/conflict_validation/raw --manifest results/conflict_validation/execution-manifest.json
 
+# Make one family's dataset clean. Two replacement rules apply, and both keep
+# the original attempt in results/<base>/raw:
+#
+#  1. an attempt that failed, or that host telemetry flagged contaminated
+#     (--rerun-contaminated);
+#  2. a repetition that stalled without being flagged: it completes at a small
+#     fraction of its configuration's median with no failed request and below
+#     every host-telemetry threshold, so rule 1 cannot see it. Those are listed
+#     by a rule declared in report/stalled_runs.py (included repetitions below
+#     STALL_BELOW times their own condition's median) and re-run through the
+#     same mechanism.
+#
+# The list is derived from the processed data, so the dataset is processed
+# first (stalled_runs.py refuses a stale list: it would name an attempt that is
+# no longer included). The replacement is a new attempt recording rerun_of and
+# rerun_reason, and report/process.py:mark_included keeps the highest attempt
+# whatever its value, so nothing is chosen on its outcome.
+BASE ?= conflict_validation
+STALL_BELOW ?= 0.7
+rerun-family: build
+	$(PY) report/process.py --raw results/$(BASE)/raw --processed results/$(BASE)/processed
+	$(PY) report/stalled_runs.py --processed results/$(BASE)/processed \
+		--below $(STALL_BELOW) --out results/$(BASE)/rerun-ids.txt
+	$(RUNNER) matrix --rerun-contaminated --results-base $(BASE) --schedule-seed $(SEED)
+	$(RUNNER) matrix --rerun-ids results/$(BASE)/rerun-ids.txt \
+		--results-base $(BASE) --schedule-seed $(SEED)
+
 # Document the failure experiment's configuration next to its measured
 # timings, so no availability gap is quoted without the failure-detection
 # parameters it was observed under.
@@ -221,6 +250,15 @@ paper-figures:
 	cp results/figures/resources/per-replica-cpu.pdf ../paper/figures/
 	cp results/figures/failure/failure-recovery.pdf ../paper/figures/
 	cp results/figures/election/election-failure.pdf ../paper/figures/
+	# Figures of the three families added after the recorded suite. They come
+	# from their own subtrees, so the corresponding -report targets must have
+	# been run; the copies fail loudly if they have not.
+	cp results/persistence_control/figures/persistence/throughput-persistence-matched.pdf \
+	   ../paper/figures/persistence-throughput-matched.pdf
+	cp results/network_delay_clean/figures/networkdelay/throughput-networkdelay.pdf \
+	   ../paper/figures/networkdelay-throughput.pdf
+	cp results/conflict_validation/figures/conflictvalidation/conflict-validation.pdf \
+	   ../paper/figures/conflict-validation.pdf
 	@echo "paper figures copied to ../paper/figures/"
 
 # The wire protocol in internal/proto is copied verbatim from the vendored

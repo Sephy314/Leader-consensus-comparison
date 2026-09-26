@@ -320,6 +320,291 @@ def commcost_figures(metrics, outdir):
     save(fig, os.path.join(outdir, "commcost", "throughput-jitter.png"))
 
 
+# --- Families added after the recorded suite --------------------------------
+#
+# Persistence matching, the clean OS-level network delay and the conflict
+# validation each have their own experiment family and their own results
+# subtree. Every generator below is a no-op when its family is absent from the
+# processed data, so running the pipeline over a dataset that does not contain
+# them (for example the recorded suite) is unaffected.
+
+IMPL_COLORS = {"hashicorp": COLORS["raft"], "etcd": "tab:orange",
+               "original": COLORS["epaxos"], "nvb": "tab:purple"}
+IMPL_LABELS = {"hashicorp": "Raft (HashiCorp)", "etcd": "Raft (etcd)",
+               "original": "EPaxos (original)", "nvb": "EPaxos (nvb)"}
+IMPL_ORDER = ("hashicorp", "etcd", "original", "nvb")
+MODES = ("durable", "memory")
+MODE_COLORS = {"durable": "tab:blue", "memory": "tab:green"}
+
+
+def _impl(m):
+    """The implementation of a metrics row. Rows recorded before the
+    implementation field existed are the primary implementation of their
+    protocol."""
+    return m.get("implementation") or ("hashicorp" if m["protocol"] == "raft" else "original")
+
+
+def _median_range(rows, metric, scale=1.0):
+    """(median, lo_err, hi_err, n) over rows, or None when no value exists.
+
+    The reported value is the median over the repetitions and the error bar is
+    the observed min-max range: with ten repetitions and a few stalled ones,
+    the range is what shows whether two conditions actually separate.
+    """
+    vals = [v / scale for v in (fnum(m.get(metric)) for m in rows) if v is not None]
+    if not vals:
+        return None
+    med = statistics.median(vals)
+    return med, med - min(vals), max(vals) - med, len(vals)
+
+
+def _bars(ax, groups, ylabel, series_order, colors=None, xticklabels=True):
+    """Grouped bar panel. groups maps (group_key, series_key) -> _median_range
+    tuple; both keys are shown in their sorted order. `xticklabels=False`
+    suppresses the labels when the neighbouring panel already carries the same
+    ones."""
+    keys = sorted({g for g, _ in groups})
+    series = [s for s in series_order if any(s == sk for _, sk in groups)]
+    width = 0.8 / max(1, len(series))
+    for i, s in enumerate(series):
+        xs, meds, los, his = [], [], [], []
+        for k, key in enumerate(keys):
+            got = groups.get((key, s))
+            if not got:
+                continue
+            med, lo, hi, _ = got
+            xs.append(k + (i - (len(series) - 1) / 2) * width)
+            meds.append(med)
+            los.append(lo)
+            his.append(hi)
+        if xs:
+            # matplotlib wants asymmetric errors as a (2, n) array.
+            yerr = [los, his] if any(los) or any(his) else None
+            ax.bar(xs, meds, width, label=s, color=(colors or {}).get(s, "tab:gray"),
+                   yerr=yerr, capsize=2, error_kw={"lw": 0.6, "alpha": 0.7})
+    ax.set_xticks(range(len(keys)))
+    if xticklabels:
+        ax.set_xticklabels(keys, fontsize=7, rotation=20, ha="right")
+    else:
+        ax.set_xticklabels([])
+    ax.set_ylabel(ylabel)
+    ax.legend(fontsize=7)
+
+
+def _lines(ax, series, xlabel, ylabel, xticks=None):
+    """Line panel. series maps label -> (color, [(x, y)]) with y already
+    scaled."""
+    for label in sorted(series):
+        color, pts = series[label]
+        pts = sorted((x, y) for x, y in pts if y is not None)
+        if pts:
+            ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o",
+                    color=color, label=label)
+    if xticks is not None:
+        ax.set_xticks(xticks)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend(fontsize=7)
+
+
+def _persistence_panels(metrics, figsize):
+    """Throughput and p50 latency by persistence mode, one panel per replica
+    count. The mode is the family's independent variable, so it is the series
+    rather than a second x axis."""
+    rows = select_included([m for m in metrics if m["experiment"] == "persistence"])
+    if not rows:
+        return []
+    replicas = sorted({int(m["replicas"]) for m in rows})
+    out = []
+    for metric, scale, ylabel, name in (
+        ("throughput_req_s", 1.0, "Throughput (req/s)", "throughput-persistence"),
+        ("latency_ns_p50", 1e6, "Median latency (ms)", "latency-persistence"),
+    ):
+        fig, axes = plt.subplots(1, len(replicas), figsize=figsize, squeeze=False)
+        for ax, r in zip(axes[0], replicas):
+            groups = {}
+            for impl in IMPL_ORDER:
+                for mode in MODES:
+                    got = _median_range(
+                        [m for m in rows if int(m["replicas"]) == r and _impl(m) == impl
+                         and m.get("persistence_mode") == mode], metric, scale)
+                    if got:
+                        groups[(IMPL_LABELS[impl], mode)] = got
+            _bars(ax, groups, ylabel if r == replicas[0] else "", MODES, MODE_COLORS,
+                  xticklabels=(r == replicas[0]))
+            ax.set_title(f"{r} replicas", fontsize=8.5)
+        out.append((name, fig))
+    return out
+
+
+def _persistence_matched_panels(metrics, figsize):
+    """The matched comparison: within one persistence mode, Raft against
+    EPaxos, one panel per mode, with the ratio printed so the direction of the
+    difference is readable without dividing numbers by eye."""
+    rows = select_included([m for m in metrics if m["experiment"] == "persistence"])
+    if not rows:
+        return []
+    pairs = [("A: hashicorp / original", "hashicorp", "original"),
+             ("B: etcd / nvb", "etcd", "nvb")]
+    replicas = sorted({int(m["replicas"]) for m in rows})
+    fig, axes = plt.subplots(1, len(replicas), figsize=figsize, squeeze=False)
+    for ax, r in zip(axes[0], replicas):
+        groups = {}
+        for label, r_impl, e_impl in pairs:
+            for mode in MODES:
+                got = _median_range(
+                    [m for m in rows if int(m["replicas"]) == r and _impl(m) == r_impl
+                     and m.get("persistence_mode") == mode], "throughput_req_s")
+                if got:
+                    groups[(label + f"  [{mode}]", "Raft")] = got
+                got = _median_range(
+                    [m for m in rows if int(m["replicas"]) == r and _impl(m) == e_impl
+                     and m.get("persistence_mode") == mode], "throughput_req_s")
+                if got:
+                    groups[(label + f"  [{mode}]", "EPaxos")] = got
+        _bars(ax, groups, "Throughput (req/s)" if r == replicas[0] else "",
+              ("Raft", "EPaxos"), {"Raft": COLORS["raft"], "EPaxos": COLORS["epaxos"]},
+              xticklabels=(r == replicas[0]))
+        ax.set_title(f"{r} replicas", fontsize=8.5)
+    return [("throughput-persistence-matched", fig)]
+
+
+def _networkdelay_panels(metrics, figsize):
+    """Throughput and p50 latency against the emulated one-way delay, per
+    implementation, plus the fraction of the un-delayed throughput each
+    implementation retains. The retained fraction is the comparison that does
+    not depend on the implementations' different baselines."""
+    rows = select_included([m for m in metrics if m["experiment"] == "networkdelay"])
+    if not rows:
+        return []
+    delays = sorted({int(m["network_delay_ms"]) for m in rows})
+    out = []
+    for metric, scale, ylabel, name in (
+        ("throughput_req_s", 1.0, "Throughput (req/s)", "throughput-networkdelay"),
+        ("latency_ns_p50", 1e6, "Median latency (ms)", "latency-networkdelay"),
+    ):
+        fig, ax = plt.subplots(figsize=figsize)
+        series = {}
+        for impl in IMPL_ORDER:
+            pts = [(d, _median_range([m for m in rows if _impl(m) == impl
+                                      and int(m["network_delay_ms"]) == d], metric, scale))
+                   for d in delays]
+            series[IMPL_LABELS[impl]] = (IMPL_COLORS[impl],
+                                         [(d, g[0] if g else None) for d, g in pts])
+        _lines(ax, series, "One-way emulated delay (ms)", ylabel, xticks=delays)
+        out.append((name, fig))
+
+    # Retained fraction of each implementation's own 0 ms point.
+    fig, ax = plt.subplots(figsize=figsize)
+    series = {}
+    for impl in IMPL_ORDER:
+        base = _median_range([m for m in rows if _impl(m) == impl
+                              and int(m["network_delay_ms"]) == 0], "throughput_req_s")
+        if not base:
+            continue
+        pts = []
+        for d in delays:
+            got = _median_range([m for m in rows if _impl(m) == impl
+                                 and int(m["network_delay_ms"]) == d], "throughput_req_s")
+            pts.append((d, 100.0 * got[0] / base[0] if got and base[0] else None))
+        series[IMPL_LABELS[impl]] = (IMPL_COLORS[impl], pts)
+    _lines(ax, series, "One-way emulated delay (ms)",
+           "Throughput retained (% of 0 ms)", xticks=delays)
+    out.append(("retained-networkdelay", fig))
+    return out
+
+
+def _conflictvalidation_panels(metrics, figsize):
+    """Did the workload do what it says, and did that create contention?
+
+    Panel 1 checks the workload itself: the realized hot-key fraction against
+    the configured one, which the per-request hot flag makes exact. Panel 2
+    reports the fraction of EPaxos commands that took the slow path, the
+    protocol-level contention the configured fraction actually produced.
+    """
+    rows = select_included([m for m in metrics if m["experiment"] == "conflictvalidation"])
+    if not rows:
+        return []
+    rows = [m for m in rows if fnum(m.get("realized_hot_fraction")) is not None]
+    if not rows:
+        return []
+    hot_keys = sorted({int(m.get("hot_keys") or 1) for m in rows})
+    configured = sorted({int(m["conflict_pct"]) for m in rows})
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    series = {}
+    for hk in hot_keys:
+        pts = []
+        for pct in configured:
+            got = _median_range([m for m in rows if int(m["conflict_pct"]) == pct
+                                 and int(m.get("hot_keys") or 1) == hk],
+                                "realized_hot_fraction")
+            pts.append((pct, 100.0 * got[0] if got else None))
+        series[f"{hk} hot key" + ("s" if hk > 1 else "")] = ("tab:blue", pts)
+    _lines(ax1, series, "Configured conflict fraction (%)",
+           "Realized hot-key fraction (%)", xticks=configured)
+    ax1.plot(configured, configured, linestyle="--", linewidth=1,
+             color="0.4", label="configured = realized")
+    ax1.legend(fontsize=7)
+    ax1.set_title("(a) the workload delivered what it configured", fontsize=8.5)
+
+    # Only runs whose implementation exposes the counters contribute; the
+    # availability flag is set per run, so an implementation without them is
+    # absent rather than plotted as zero.
+    counted = [m for m in rows if str(m.get("epaxos_counters_available")).lower() == "true"]
+    series = {}
+    for hk in hot_keys:
+        pts = []
+        for pct in configured:
+            sel = [m for m in counted if int(m["conflict_pct"]) == pct
+                   and int(m.get("hot_keys") or 1) == hk]
+            shares = []
+            for m in sel:
+                fast, slow = fnum(m.get("epaxos_fast_path")), fnum(m.get("epaxos_slow_path"))
+                if fast is not None and slow is not None and (fast + slow) > 0:
+                    shares.append(100.0 * slow / (fast + slow))
+            pts.append((pct, statistics.median(shares) if shares else None))
+        series[f"{hk} hot key" + ("s" if hk > 1 else "")] = ("tab:red", pts)
+    if counted:
+        _lines(ax2, series, "Configured conflict fraction (%)",
+               "Slow-path share (%)", xticks=configured)
+    # The upstream counters are reset on every accepted client connection, so
+    # they cover only the interval since the last one. The coverage is measured
+    # per run and stated here: a counter-derived share is a within-window
+    # indicator, never a census of the measured phase.
+    coverages = [c for c in (fnum(m.get("epaxos_counters_coverage")) for m in counted) if c]
+    if coverages:
+        ax2.set_title(f"(b) EPaxos path mix — counters cover {100 * statistics.median(coverages):.0f}% of requests",
+                      fontsize=8.5)
+    else:
+        ax2.set_title("(b) EPaxos path mix — counter coverage unknown", fontsize=8.5)
+    fig.tight_layout()
+    return [("conflict-validation", fig)]
+
+
+def paper_persistence_figures(metrics, outdir):
+    """Throughput and latency by persistence mode, plus the matched
+    Raft-against-EPaxos comparison within each mode."""
+    panels = _persistence_panels(metrics, (6.8, 2.5)) + _persistence_matched_panels(metrics, (6.8, 2.5))
+    for name, fig in panels:
+        save_pub(fig, os.path.join(outdir, "persistence", name))
+
+
+def paper_networkdelay_figures(metrics, outdir):
+    """Throughput and latency against the emulated delay, plus the fraction
+    of the un-delayed throughput each implementation retains."""
+    for name, fig in _networkdelay_panels(metrics, (3.4, 2.5)):
+        save_pub(fig, os.path.join(outdir, "networkdelay", name))
+
+
+def paper_conflictvalidation_figures(metrics, outdir):
+    """The realized hot-key fraction against the configured one, and the
+    EPaxos slow-path share it produced."""
+    for name, fig in _conflictvalidation_panels(metrics, (6.8, 2.5)):
+        save_pub(fig, os.path.join(outdir, "conflictvalidation", name))
+
+
 def resource_figures(resources, outdir):
     """Per-replica CPU and network distribution."""
     if not resources:
@@ -859,6 +1144,12 @@ def main():
     commcost_figures(metrics, args.figures)
     resource_figures(resources, args.figures)
     failure_figures(failures, args.processed, args.figures)
+
+    # The three families added after the recorded suite have no HTML report
+    # section, so they are generated once, in the publication style.
+    paper_persistence_figures(metrics, args.figures)
+    paper_networkdelay_figures(metrics, args.figures)
+    paper_conflictvalidation_figures(metrics, args.figures)
 
     print("generating publication figures ...")
     paper_scaling_figures(metrics, args.figures)

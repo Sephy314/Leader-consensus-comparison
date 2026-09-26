@@ -61,6 +61,7 @@ commands:
   run     <config.json> [repetition]
   matrix  [--config configs/matrix.json] [--only <experiment>] [--limit <n>]
           [--schedule-seed <n>] [--skip-existing] [--rerun-contaminated]
+          [--rerun-ids <file>] [--results-base <dir>]
   smoke   [--config configs/smoke.json]
   validate
   manifest [--schedule-seed <n>] [--root results/raw]

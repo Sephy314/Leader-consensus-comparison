@@ -147,6 +147,29 @@ them reads or writes the recorded dataset. Each has a `-dry-run` make target
 that expands the configuration, validates every run and prints the run IDs
 without executing anything.
 
+Two replacement rules apply to these families, and both keep the original
+attempt in the raw dataset:
+
+- **Flagged attempts** (`make rerun-contaminated`, or `runner matrix
+  --rerun-contaminated --results-base <family>`): an attempt that failed, or
+  that host telemetry flagged contaminated, is re-run as a new attempt.
+- **Unflagged stalls** (`make rerun-family BASE=<family>`, second half): a
+  repetition can complete at a small fraction of its configuration's median
+  with no failed request and without crossing any host-telemetry threshold, so
+  the rule above cannot see it. Those repetitions are selected by a second rule
+  declared in `report/stalled_runs.py` — an included repetition below a fixed
+  fraction (`--below`, default 0.7) of the median of its own configuration,
+  computed over the included repetitions of that configuration — written to
+  `results/<family>/rerun-ids.txt`, and re-run through the same mechanism. The
+  generator refuses to derive the list from processed data that is older than
+  the newest run directory, because such a list would name an attempt that is no
+  longer included.
+
+`report/process.py:mark_included` keeps, for every condition and repetition,
+the non-contaminated attempt with the highest attempt number, whatever its
+measured value: a replacement that stalls again stays in the dataset. Nothing
+is selected on its outcome, and no attempt is deleted or edited.
+
 ### Persistence matching (`configs/persistence.json`, `make persistence`)
 
 Holds workload, replica count, concurrency, durations, repetitions and network
