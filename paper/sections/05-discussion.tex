@@ -11,62 +11,42 @@ differences were observed for replica count and client concurrency, whereas
 the tested conflict and write ratios produced comparatively little systematic
 variation.
 
-Increasing the replica count reduced throughput for both implementations.
-At three replicas, the measured median throughput was 5{,}291\,req/s for
-EPaxos and 4{,}350\,req/s for Raft. At nine replicas, the corresponding
-medians were 2{,}002 and 2{,}112\,req/s. Relative to the three-replica
-measurements, this represents reductions of approximately 62\,\% for EPaxos
-and 51\,\% for Raft. The EPaxos/Raft throughput ratio was 1.22 at three
-replicas, 1.73 at five, 1.12 at seven, and 0.95 at nine replicas. The
-difference was statistically significant at three and five replicas but not
-at seven or nine replicas. Thus, the measured throughput relationship was
-not constant as the cluster grew.
-
-The throughput reduction for EPaxos at seven and nine replicas requires
-additional interpretation. Nearly every EPaxos run at these sizes contained
-30--247 requests that reached the 2\,s client timeout, whereas the
-corresponding Raft runs had no such timeouts. The successful EPaxos requests
-still had p50 latency of approximately 5.4--5.6\,ms. The closed-loop
-concurrency accounting was consistent with the observed throughput reduction
-being caused by workers remaining occupied by timed-out requests rather than
-by an equivalent increase in the latency of successful requests. The
-available instrumentation does not establish the execution-path mechanism
-that caused these timeouts. Consequently, the lower EPaxos throughput at
-higher replica counts should not be interpreted solely as a scaling
+Increasing the replica count reduced throughput for both implementations,
+but the EPaxos/Raft ratio changed with cluster size rather than remaining
+constant, and the difference was statistically detectable only at the three-
+and five-replica configurations (Section~\ref{sec:evaluation},
+Table~\ref{tab:scaling}). The EPaxos reduction at seven and nine replicas
+is partly an artefact of client timeouts rather than a property of the
+protocol's scaling: each timed-out request occupies a client worker for the
+full client timeout, and the closed-loop accounting including that term
+matches every run at those sizes. The available instrumentation does not
+identify the execution path responsible for the timeouts, so the lower
+EPaxos throughput at those sizes should not be read as a scaling
 characteristic of the protocol.
 
-Client concurrency produced a different pattern. Throughput increased for
-both implementations across the tested range, but EPaxos scaled more
-strongly at high concurrency. At concurrency 256, EPaxos reached
-41{,}069\,req/s compared with 19{,}278\,req/s for Raft, with p50 latencies
-of 5.6 and 12.1\,ms, respectively. This behaviour is consistent with the
-evaluated EPaxos implementation accepting proposals through multiple
-replicas, whereas the evaluated Raft request path is centred on the elected
-leader. However, the experiment does not isolate this protocol mechanism
-from implementation-level request processing, scheduling, and transport
-costs.
+Client concurrency produced a different pattern: EPaxos gained considerably
+more from high concurrency than Raft, and the gap was widest at the highest
+concurrency tested. This is consistent with the evaluated EPaxos
+implementation accepting proposals through several replicas while the
+evaluated Raft request path is centred on the elected leader. The
+experiment does not, however, isolate that protocol mechanism from
+implementation-level request processing, scheduling, and transport costs.
 
-The latency results provide a related but distinct observation. Raft p50
-latency increased monotonically from 6.9\,ms at three replicas to 14.6\,ms
-at nine replicas, whereas EPaxos remained within 5.4--5.6\,ms across the
-same replica counts. At high concurrency, the difference was also visible:
-at concurrency 256, EPaxos had a p50 of 5.6\,ms compared with 12.1\,ms for
-Raft. At concurrency 1, however, the ordering was reversed, with 2.8\,ms
-for Raft and 5.5\,ms for EPaxos. Thus, the measured latency relationship
-depends on workload concurrency rather than remaining fixed across the
-tested conditions.
+The latency results show the same condition dependence. Raft's p50 latency
+rose monotonically with replica count while the EPaxos p50 stayed within a
+narrow band, and at the lowest concurrency tested the ordering of the two
+reversed. The measured latency relationship therefore depends on the
+operating condition rather than being a fixed property of either design.
 
-In contrast, the write-ratio experiment showed no statistically significant
-throughput trend for either implementation. The same was true for the
-recorded conflict-ratio experiment. The conflict-validation experiment
-further showed that the configured conflict fraction was actually realised
-by the workload, so the null result in the original experiment cannot be
-explained simply by an incorrectly generated conflict distribution. Three
-of the four evaluated implementations showed no systematic throughput
-response over the non-degenerate conflict range, while nvb EPaxos showed a
-monotonic decline. The latter demonstrates that conflict sensitivity can be
-implementation-specific even when the workload itself realises the intended
-access pattern.
+The write-ratio and conflict-ratio sweeps produced no statistically
+significant throughput trend for the evaluated implementations, and the
+conflict-validation family shows that this is not an artefact of the
+workload failing to realise the configured fraction: the realised hot-key
+access pattern matched the configuration exactly, and three of the four
+implementations still showed no systematic response over the range in which
+the keyspace retains cold keys. The fourth, nvb EPaxos, declined
+monotonically with the configured fraction, which makes conflict sensitivity
+implementation-specific rather than a property of the protocol family.
 
 Overall, RQ1 indicates that replica count and concurrency produced the most
 visible changes in the measured performance, while write ratio and conflict
@@ -78,88 +58,47 @@ underlying consensus protocols.
 \subsection{RQ2: Failure and Communication Behaviour}
 
 RQ2 examines the behaviour of the evaluated implementations under replica
-failure and increasing communication cost. The failure experiments show a
-clear distinction between failure of the Raft leader and failure of a
-non-leader replica. Terminating the Raft leader produced write-availability
-gaps of 1.81--4.74\,s and 2{,}169--4{,}133 failed requests, whereas
-terminating a Raft follower produced gaps of only 0.02--0.04\,s with no
-failed requests. EPaxos replica termination produced gaps of
-0.02--0.09\,s with 10--106 failed requests.
+failure and increasing communication cost. Failure of the Raft leader and
+failure of a non-leader replica have clearly different consequences in the
+tested configuration: leader termination interrupted writes until a
+replacement was elected, whereas terminating a Raft follower or an EPaxos
+replica produced interruptions about two orders of magnitude shorter
+(Table~\ref{tab:failure}).
 
-This difference is consistent with the role of the elected leader in the
-evaluated Raft implementation: leader termination requires the system to
-elect a replacement before the normal write path can resume, whereas the
-tested follower-failure case leaves the current leader in place. The
-observed behaviour should nevertheless be interpreted as a property of the
-tested failure mechanisms and implementations rather than as a universal
-distinction between leader-based and leaderless consensus. The election
-experiment provides additional evidence that recovery behaviour is related
-to the number of disrupted elections. The measured failed-election count
-was strongly associated with the total availability gap ($r=0.90$), but
-this association is partly mechanical because the imposed isolation
-duration contributes directly to the measured gap. After removing the
-isolation interval, the association between failed elections and the
-remaining recovery interval was weaker ($r=0.41$). This residual relationship
-is therefore treated as descriptive rather than causal.
+This is consistent with the role of the elected leader in the evaluated Raft
+implementation, but it should be read as a property of the tested failure
+mechanisms and implementations rather than as a universal distinction
+between leader-based and leaderless consensus. The election experiment shows
+that recovery relates to the number of disrupted elections, although the
+association with the total availability gap is partly mechanical because the
+imposed isolation interval contributes to that gap directly; once the
+isolation interval is removed, the residual association with the remaining
+recovery interval is weak and is treated as descriptive rather than causal.
 
-The communication experiments reveal a second form of sensitivity. The
-application-level communication-cost experiment initially showed large
-differences between implementations. With 10\,ms of injected one-way
-delay, throughput reductions were 72\,\% for HashiCorp Raft, 81\,\% for
-nvb EPaxos, 96\,\% for the original EPaxos, and 99.3\,\% for etcd Raft.
-The etcd Raft implementation was particularly sensitive, falling from
-6{,}420\,req/s without injected delay to 375\,req/s at 1\,ms and
-45\,req/s at 10\,ms.
-
-However, the controlled network-delay experiment demonstrates why these
-results should not be interpreted directly as protocol-level communication
-sensitivity. When the same nominal delay was applied externally using
-\texttt{tc/netem}, rather than by inserting sleeps into the implementations'
-send paths, all four implementations showed a more comparable response.
-At 10\,ms, the implementations retained 18.1\,\% of baseline throughput
-for HashiCorp Raft, 17.6\,\% for etcd Raft, 13.8\,\% for original EPaxos,
-and 9.0\,\% for nvb EPaxos. Thus, the retained-throughput fractions differed
-by approximately a factor of two across the four implementations under the
-controlled network condition, compared with a factor of approximately forty
-under application-level injection.
-
-The controlled experiment therefore provides the stronger basis for
-discussing communication-cost sensitivity. Increasing communication delay
-caused a substantial and statistically detectable reduction in throughput
-for all implementations, but the relative changes were of a similar order
-across the four implementations. In particular, the differences were much
-smaller than those produced by the application-level injection mechanism.
-This suggests that part of the extreme sensitivity observed in the initial
-communication experiment originated from how the delay interacted with the
-implementation's message-sending path rather than from the communication
-delay itself.
-
-The latency measurements support the same interpretation. At 10\,ms of
-controlled delay, p50 latency increased to 36.9\,ms for HashiCorp Raft,
-25.7\,ms for etcd Raft, 44.6\,ms for original EPaxos, and 83.0\,ms for nvb
-EPaxos. Although the implementations differed, the response was
-considerably less divergent than in the application-level experiment. The
-controlled network experiment therefore shows that communication cost
-affects both throughput and latency, while also demonstrating that the
-magnitude of the observed effect depends on where and how the cost is
-introduced.
-
-The jitter experiment provides a further qualification. At a 5\,ms base
-delay, increasing jitter to 100\,\% reduced throughput by 24\,\% for
-HashiCorp Raft and nvb EPaxos, 36\,\% for original EPaxos, and 32\,\% for
-etcd Raft. Under the implemented jitter model, however, 100\,\% jitter also
-increased the mean injected delay from 5 to 7.5\,ms. Consequently, the
-experiment cannot isolate delay variance from the corresponding increase in
-mean communication cost. The observed effect is therefore evidence of
-sensitivity to the combined change in delay distribution rather than to
-jitter variance alone.
+The communication experiments reveal a second form of sensitivity. Under
+application-level injection the four implementations appeared to differ
+sharply, but applying the same nominal delay outside the implementations
+with \texttt{tc/netem} compressed the spread of retained throughput from
+roughly a factor of forty to a factor of two, and it also changed the
+ordering of the implementations. The extreme apparent sensitivity of the
+application-level condition therefore originates in how that mechanism
+interacts with each implementation's send path rather than in the added
+delay as such: because it sleeps per message, an implementation that sends
+more messages per request, or that serialises its sends, is affected more
+strongly. The controlled condition is the evidence used here for delay
+sensitivity; the application-level measurements characterise each
+implementation's send path. Communication cost affects latency as well as
+throughput under the controlled condition, but less divergently across
+implementations than the application-level condition suggested. The jitter
+sweep supports the same reading, with the qualification that the implemented
+jitter model raises the mean injected delay as well as its variance, so that
+experiment cannot separate the two.
 
 Taken together, the failure and communication experiments show that
 adverse-condition behaviour depends both on the role of the failed replica
-and on the communication mechanism used to impose network cost. The
-controlled network experiment also provides evidence that the measured
-communication penalty is relatively similar in scale across the evaluated
-implementations when the same delay is introduced outside their internal
+and on the communication mechanism used to impose network cost, and that the
+communication penalty is of a similar order across the evaluated
+implementations once the same delay is introduced outside their internal
 message-processing paths.
 
 \subsection{RQ3: Implementation-Level Sources of Performance Difference}
@@ -170,112 +109,63 @@ consensus algorithm families themselves. The results from the implementation,
 persistence, and communication experiments consistently indicate that the
 measured relationship depends substantially on implementation details.
 
-The controlled communication-delay family provides the primary basis for
-comparing implementation sensitivity to communication cost. At zero
-applied delay, the measured median throughputs were 6{,}479\,req/s for
-etcd Raft, 5{,}486\,req/s for original EPaxos, 4{,}556\,req/s for HashiCorp
-Raft, and 4{,}475\,req/s for nvb EPaxos. The baseline ordering therefore did
-not correspond directly to the leader-based versus leaderless classification.
-Moreover, the implementation with the highest zero-delay throughput was not
-the implementation retaining the highest throughput after communication delay
-was introduced. At 10\,ms, HashiCorp Raft retained the largest fraction of
-its baseline throughput, whereas etcd Raft had the highest zero-delay
-throughput.
+The controlled communication-delay family is the primary basis for
+comparing implementation sensitivity to communication cost, and its
+baseline ordering does not correspond to the leader-based versus leaderless
+classification: the implementation with the highest zero-delay throughput is
+not the one that retains the most throughput once delay is applied
+(Section~\ref{sec:delay-results}).
 
-The persistence-matching experiment provides particularly direct evidence
-for implementation sensitivity. The recorded baseline compares a durable
-HashiCorp Raft implementation with an in-memory original EPaxos
-implementation. When both were evaluated in memory, HashiCorp Raft reached
-29{,}660\,req/s compared with 5{,}585\,req/s for original EPaxos at three
-replicas. When both were evaluated with durable storage, the corresponding
-throughputs were 4{,}425 and 2{,}005\,req/s. The same direction was observed
-for the second implementation pair: at three replicas, in-memory etcd Raft
-measured 12{,}884\,req/s compared with 4{,}226\,req/s for nvb EPaxos, a
-3.0$\times$ difference. At five replicas the matched comparisons were also
-separated: 4.4$\times$ for the HashiCorp Raft/original EPaxos pair in
-memory (24{,}573 against 5{,}613\,req/s), 1.8$\times$ for the same pair
-with durable storage (3{,}294 against 1{,}838), and 5.3$\times$ for the
-etcd Raft/nvb EPaxos pair (8{,}437 against 1{,}600).
+The persistence-matching family provides particularly direct evidence. The
+recorded baseline compares a durable HashiCorp Raft with an in-memory
+original EPaxos, and matching the storage mode reverses the ordering at both
+replica counts tested, every matched comparison being significant at
+$p<0.001$ (Section~\ref{sec:persistence-results},
+Table~\ref{tab:persistence}). The cost of persistence is itself
+implementation-specific rather than uniform, and the implementation that
+loses the largest fraction of its in-memory throughput when its log is
+persisted is the one that the recorded comparison placed against an
+in-memory EPaxos. The recorded baseline therefore combines consensus
+behaviour with a substantial difference in persistence configuration, and
+its EPaxos/Raft ratio cannot be treated as an intrinsic property of the two
+protocol families.
 
-The same implementation also changed substantially when its storage mode
-changed. At three replicas, durable storage retained only 15\,\% of
-HashiCorp Raft's in-memory throughput, 48\,\% for etcd Raft, and 36\,\% for
-original EPaxos. At five replicas, the corresponding retention fractions
-were 13\,\%, 69\,\%, and 33\,\%. These results show that the recorded
-baseline comparison combines consensus behaviour with a substantial
-difference in persistence configuration. The observed EPaxos/Raft throughput
-ratio in the baseline therefore cannot be treated as an intrinsic property
-of the two protocol families.
-
-The communication experiments provide a second example. Application-level
-delay produced extreme implementation-dependent behaviour, including the
-near-collapse of etcd Raft. When the same nominal delay was applied outside
-the implementations using \texttt{tc/netem}, the retained-throughput range
-was much narrower. The same implementation could therefore appear highly
-sensitive or comparatively resilient depending on the mechanism used to
-introduce the communication cost. This difference demonstrates that the
-experimental method itself can interact with implementation architecture.
-
-The resource measurements further support this interpretation. Mean
-per-replica CPU utilisation was similar between the baseline Raft and EPaxos
-measurements, at 36.5\,\% and 35.4\,\%, respectively, while mean peak RSS
-was 28.3\,MB for Raft and 46.4\,MB for EPaxos. Across the HashiCorp Raft
-scaling configurations, the leader/follower CPU ratio remained below one,
-with ratios of 0.61--0.64 at three replicas, 0.70 at five replicas, and
-0.73--0.75 at seven and nine replicas. Thus, the elected leader did not
-form the CPU hotspot in the evaluated implementation. This observation
-cautions against attributing the measured scaling behaviour solely to the
-conceptual centralisation of the Raft leader: the concrete implementation
+The resource measurements point the same way. Mean per-replica CPU
+utilisation was similar between the two baseline measurements even though
+their throughput differs, and the elected Raft leader did not form the CPU
+hotspot in the scaling configurations, so the concrete implementation
 distributed CPU work differently from what a simple leader-as-bottleneck
-model would predict.
+model predicts (Section~\ref{sec:evaluation}).
 
-The combined results therefore support an implementation-sensitive
-interpretation of the Raft--EPaxos comparison. Measured throughput and
-latency arise from the interaction of consensus structure with persistence,
-request processing, scheduling, message handling, transport behaviour,
-workload, replica count, concurrency, and failure conditions. Consequently,
-an observed performance difference between the evaluated Raft and EPaxos
-implementations cannot be attributed to the consensus algorithm family
-alone.
-
-At the same time, the experiments do not imply that algorithmic structure
-is irrelevant. The asymmetric failure behaviour of the tested Raft
-implementation, the different response to client concurrency, and the
-different latency scaling with replica count are consistent with mechanisms
-arising from the respective consensus designs. Rather, the results indicate
-that these protocol-level mechanisms are observed through concrete
-implementations, and implementation costs can materially amplify,
-attenuate, or even reverse the measured relationship.
+The combined results therefore support an implementation-sensitive reading
+of the Raft--EPaxos comparison: measured throughput and latency arise from
+the interaction of consensus structure with persistence, request processing,
+scheduling, message handling, transport, workload, and failure conditions,
+so a difference between the evaluated implementations cannot be attributed
+to the algorithm family alone. This does not imply that algorithmic
+structure is irrelevant. The asymmetric failure behaviour, the different
+response to client concurrency, and the different latency scaling with
+replica count are all consistent with mechanisms arising from the respective
+consensus designs; the results indicate that those mechanisms are observed
+through concrete implementations, and that implementation costs can
+materially amplify, attenuate, or even reverse the measured relationship.
 
 \subsection{Implications for Interpreting the Comparison}
 
-The three research questions together show that a consensus comparison
-based on a single implementation pair and a single local-network workload
-can conflate several distinct effects. RQ1 shows that the measured
-relationship changes with workload and system scale. RQ2 shows that failure
-role and communication conditions substantially alter the observed
-behaviour. RQ3 demonstrates that persistence, message handling, and the
-experimental mechanism used to introduce communication cost can change the
-comparison itself.
-
-The controlled network experiment is particularly relevant when considering
-communication-intensive environments. At 10\,ms of externally applied
-one-way delay, all four implementations experienced substantial throughput
-reductions, while the retained-throughput fractions remained within a
-relatively narrow 9.0--18.1\,\% range. This result demonstrates measurable
-differences in communication sensitivity without supporting a universal
-claim about the relative WAN performance of EPaxos and Raft. The experiment
-uses a single-host environment with artificial delay and does not reproduce
-other WAN characteristics such as packet loss, bandwidth constraints, route
-asymmetry, or independent host failures.
-
-Similarly, the failure results provide evidence of a measured availability
-cost associated with replacing the Raft leader, but they do not establish
-that every leader-based system incurs the same cost. Election timeout
-configuration, transport implementation, retry policy, and failure
-detection can all affect the measured recovery interval. The same principle
-applies to EPaxos: the short recovery observed in the tested replica-failure
-scenario characterises that implementation and configuration.
+The three research questions together show that a comparison based on a
+single implementation pair and a single local-network workload can conflate
+several distinct effects: the measured relationship changes with workload and
+system scale, with failure role and communication conditions, and with the
+persistence configuration, the message handling, and the mechanism used to
+introduce communication cost. The controlled network experiment demonstrates
+measurable differences in communication sensitivity without supporting a
+universal claim about the relative WAN performance of EPaxos and Raft, and
+the failure results show an availability cost for replacing the Raft leader
+without establishing that every leader-based system incurs the same cost:
+election timeout configuration, transport implementation, retry policy, and
+failure detection can all affect the measured recovery interval, and the same
+principle applies to the short recovery measured in the tested EPaxos
+replica-failure scenario.
 
 For experimental comparisons, the results therefore indicate that
 persistence, transport, communication conditions, workload, failure

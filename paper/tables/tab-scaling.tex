@@ -1,13 +1,18 @@
-\begin{table}[t]
-\caption{Throughput (req/s, median of 10 repetitions) by replica count, at
-100\,\% writes and concurrency 32. Brackets show the 95\,\% bootstrap
-confidence interval of the median. Medians are used because several
-repetitions stalled (see Section~\ref{sec:evaluation}); the mean is lower
+\begin{table*}[t]
+\caption{Throughput and median (p50) latency by replica count, at 100\,\%
+writes and concurrency 32. (a)~Throughput in req/s, with the 95\,\% bootstrap
+confidence interval of the median; medians are used because several
+repetitions stalled (Section~\ref{sec:evaluation}), and the mean is lower
 for Raft at every replica count and for EPaxos at five and seven
-replicas.}
+replicas. (b)~Latency in milliseconds, the median of the ten
+per-repetition p50 values.}
 \label{tab:scaling}
+\centering
 \footnotesize
 \setlength{\tabcolsep}{2pt}
+\begin{minipage}[t]{0.63\textwidth}
+\centering
+(a) throughput (req/s)\\[3pt]
 \begin{tabular}{@{}lrlrlr@{}}
 \toprule
 Replicas & Raft & \multicolumn{1}{c}{95\,\% CI} & EPaxos & \multicolumn{1}{c}{95\,\% CI} & \shortstack{EPaxos/\\Raft} \\
@@ -18,4 +23,19 @@ Replicas & Raft & \multicolumn{1}{c}{95\,\% CI} & EPaxos & \multicolumn{1}{c}{95
 9 & 2{,}112 & [1{,}337--2{,}159] & 2{,}002 & [1{,}318--3{,}183] & 0.95$\times$ \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.30\textwidth}
+\centering
+(b) p50 latency (ms)\\[3pt]
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Replicas & Raft & EPaxos \\
+\midrule
+3 & 6.9 & 5.6 \\
+5 & 9.2 & 5.5 \\
+7 & 12.0 & 5.4 \\
+9 & 14.6 & 5.5 \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\end{table*}

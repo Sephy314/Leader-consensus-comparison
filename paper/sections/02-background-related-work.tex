@@ -3,29 +3,23 @@
 
 \subsection{Leader-Based and Leaderless Consensus}
 
-Consensus protocols coordinate replicas so that a replicated state machine
-applies operations in a consistent order despite failures. Protocols differ
-in how they establish this order. Leader-based protocols such as
-Raft~\cite{ongaro2014raft} designate one replica as the leader: client
-requests are directed to it, it appends operations to its log and
-replicates them to followers, and an entry is committed once a quorum has
-acknowledged it. This centralises the write path around a single replica
+Leader-based protocols such as Raft~\cite{ongaro2014raft} designate one
+replica as the leader: client requests are directed to it, it appends
+operations to its log and replicates them to followers, and an entry is
+committed once a quorum has acknowledged it. This centralises the write path
 and makes leader failure require an election before processing resumes.
 Paxos~\cite{lamport1998parttime} established the foundational agreement
 framework, but its abstract presentation leaves substantial implementation
-decisions to system designers, so systems implementing the same protocol
-family can differ considerably in execution path, storage, and
-communication behaviour.
+decisions to system designers, so systems in the same protocol family can
+differ considerably in execution path, storage, and communication behaviour.
 
-Leaderless protocols such as EPaxos~\cite{moraru2013epaxos} allow any
-replica to propose operations and determine dependencies among them.
-Commands that do not conflict can commit without a single global ordering
-point, at the cost of dependency tracking and conflict detection. Removing
-the single ordering authority does not eliminate coordination: replicas
-must agree on dependencies and execute conflicting operations in a
-compatible order. Leaderless operation also changes failure behaviour: the
-loss of one replica does not require electing a replacement leader before
-other replicas continue proposing.
+Leaderless protocols such as EPaxos~\cite{moraru2013epaxos} let any replica
+propose operations and determine dependencies among them. Commands that do
+not conflict can commit without a single global ordering point, at the cost of
+dependency tracking and conflict detection: replicas must still agree on
+dependencies and execute conflicting operations in a compatible order. The
+loss of one replica does not require electing a replacement before the others
+continue proposing.
 
 \subsection{Related Work}
 
@@ -46,8 +40,6 @@ controlled conditions, as we do here.
 Our study compares two Raft implementations (HashiCorp Raft and etcd Raft)
 with two EPaxos implementations (the original \texttt{efficient/epaxos} and
 \texttt{nvanbenschoten/epaxos}) while varying replica count, concurrency,
-communication delay, and failure conditions. The comparison therefore
-evaluates concrete implementations under a controlled workload rather than
-treating the results as protocol-independent properties of Raft or EPaxos.
-This distinction is reflected throughout the paper and in the threats to
-validity discussed in Section~\ref{sec:threats}.
+communication delay, and failure conditions, so the results describe concrete
+implementations under a controlled workload rather than protocol-independent
+properties of Raft or EPaxos.
