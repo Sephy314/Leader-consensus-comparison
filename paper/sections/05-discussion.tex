@@ -28,9 +28,16 @@ Client concurrency produced a different pattern: EPaxos gained considerably
 more from high concurrency than Raft, and the gap was widest at the highest
 concurrency tested. This is consistent with the evaluated EPaxos
 implementation accepting proposals through several replicas while the
-evaluated Raft request path is centred on the elected leader. The
-experiment does not, however, isolate that protocol mechanism from
-implementation-level request processing, scheduling, and transport costs.
+evaluated Raft request path is centred on the elected leader, and a
+Raft-only follow-up confirmed the replica-scaling penalty persists at
+higher concurrency (43--51\,\% lower at nine replicas across c32--c256)
+with the leader's CPU utilisation rising with concurrency while remaining
+concentrated on the leader. The experiment does not, however, isolate that
+protocol mechanism from implementation-level request processing,
+scheduling, and transport costs, and the leader approached but did not
+exceed its two-core allocation, so the measurements are consistent with a
+leader-centred write path without demonstrating a hard CPU capacity
+ceiling.
 
 The latency results show the same condition dependence. Raft's p50 latency
 rose monotonically with replica count while the EPaxos p50 stayed within a

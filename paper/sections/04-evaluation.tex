@@ -81,11 +81,24 @@ two implementations.
 For the scaling family, the difference between the implementations was
 statistically significant at three and five replicas (exact Mann--Whitney
 $U$ test, uncorrected $p<0.001$), while no statistically significant difference was
-detected at seven ($p=0.12$) or nine ($p=0.32$) replicas. The 95\,\%
+detected at seven ($p=0.25$) or nine ($p=0.68$) replicas. The 95\,\%
 bootstrap confidence intervals of the medians overlap at seven and nine
 replicas (Table~\ref{tab:scaling}). The measured EPaxos/Raft throughput
 difference was therefore statistically significant only at the smaller
 cluster sizes in this experiment.
+
+A Raft-only follow-up at client concurrency 128 and 256 (five
+repetitions per cell, 40 runs) found the replica-scaling penalty
+persists: the nine-replica median was 45\,\% lower at c128 (11{,}856 to
+6{,}535\,req/s) and 43\,\% lower at c256 (17{,}325 to 9{,}949\,req/s),
+versus 51\,\% at c32 (Figure~\ref{fig:throughput-scaling-conc}); the
+r3-to-r9 difference was significant at both levels ($p=0.008$, exact
+Mann--Whitney $U$, $n=5$ per group). The leader's CPU utilisation grew
+with concurrency (about 53\,\% at c32 to 82\,\% at c128 and 103\,\% at
+c256 at three replicas) while followers stayed below 35\,\%. The leader
+remained the CPU hotspot under higher offered concurrency, approaching
+but not exceeding its two-core allocation, so these measurements do not
+demonstrate a hard CPU capacity ceiling.
 
 \input{tables/tab-scaling}
 
@@ -96,6 +109,15 @@ cluster sizes in this experiment.
 concurrency 32. Points show individual repetitions; the line marks the
 median.}
 \label{fig:throughput-scaling}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.58\columnwidth]{figures/throughput-scaling-conc.pdf}
+\caption{Raft throughput by replica count at 100\,\% writes and client
+concurrency 32, 128, and 256. The replica-scaling penalty persists at
+every concurrency level.}
+\label{fig:throughput-scaling-conc}
 \end{figure}
 
 Figure~\ref{fig:throughput-concurrency} shows throughput across the client
@@ -257,7 +279,9 @@ given repetition consumed substantially \emph{more} CPU than the followers.
 Taking the leader from each run's own Raft log, the leader/follower ratio of
 mean utilisation was 2.2 at three replicas, 2.8 at five, 3.3 at seven and 3.8
 at nine replicas, using the medians over the ten repetitions, so the leader's
-share of the cluster's CPU grows with cluster size.
+CPU cost grew relative to each follower as the cluster grew. (The leader's
+share of the cluster's total CPU falls as replicas are added; it is the
+per-follower ratio that rises.)
 
 This is consistent with the request path of the evaluated HashiCorp Raft
 implementation: the leader serves the benchmark client, applies every command,

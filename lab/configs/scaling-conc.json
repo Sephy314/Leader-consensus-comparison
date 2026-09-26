@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Raft-only high-concurrency scaling follow-up. The recorded scaling",
+    "family is fixed at concurrency 32 and the recorded concurrency family",
+    "is fixed at 3 replicas, so neither covers the concurrency x replica",
+    "interaction. This family tests whether the replica-scaling penalty",
+    "observed at c32 persists under higher offered concurrency (c128, c256).",
+    "",
+    "Raft only, 100% writes, 5 repetitions per cell. The runner's default",
+    "minimum is 10 repetitions, so this config must be run with the explicit",
+    "--reps 5 override (the config alone cannot under-sample):",
+    "  runner matrix --config configs/scaling-conc.json --results-base scaling-conc --reps 5",
+    "4 replica counts x 2 concurrency levels x 5 repetitions = 40 runs.",
+    "",
+    "The `defaults` block is a verbatim copy of configs/matrix.json's",
+    "defaults (same CPU/memory allocation, keyspace, timeouts, Raft",
+    "timeouts, seed, duration and warm-up), so the runs use the same",
+    "benchmark methodology as the recorded runs and differ only in the",
+    "replica count and concurrency."
+  ],
+  "defaults": {
+    "protocol": "raft",
+    "replicas": 3,
+    "read_pct": 50,
+    "write_pct": 50,
+    "concurrency": 32,
+    "duration_s": 20,
+    "warmup_s": 3,
+    "repetitions": 5,
+    "failure": {"mode": "none", "at_s": 0, "restart_after_s": 0},
+    "replica_cpus": 2.0,
+    "replica_mem_mb": 512,
+    "client_cpus": 2.0,
+    "client_mem_mb": 512,
+    "master_cpus": 1.0,
+    "master_mem_mb": 256,
+    "keyspace": 1000,
+    "timeout_ms": 2000,
+    "seed": 42,
+    "gomaxprocs": 4,
+    "raft_heartbeat_ms": 1000,
+    "raft_election_ms": 2000,
+    "raft_snapshot_threshold": 8192,
+    "raft_trailing_logs": 1024
+  },
+  "scalingconc": {
+    "protocols": ["raft"],
+    "replicas": [3, 5, 7, 9],
+    "write_pct": 100,
+    "concurrencies": [128, 256]
+  }
+}

@@ -12,7 +12,7 @@ PY      ?= .venv/bin/python
 # execution manifest, and the reason a resumed suite replays the same order.
 SEED    ?= 20260919
 
-.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results persistence persistence-dry-run network-delay network-delay-dry-run conflict-validation conflict-validation-dry-run persistence-report network-delay-report conflict-validation-report rerun-family failure-configuration resource-contention
+.PHONY: help build image smoke run matrix rerun-contaminated manifest report html open-report validate test figures paper-figures paper-numbers compare-datasets sensitivity sensitivity-report correctness check-upstream tidy upstream-hash clean clean-results persistence persistence-dry-run network-delay network-delay-dry-run conflict-validation conflict-validation-dry-run persistence-report network-delay-report conflict-validation-report scaling-conc scaling-conc-dry-run scaling-conc-report rerun-family failure-configuration resource-contention
 
 help:
 	@echo "targets:"
@@ -183,6 +183,20 @@ conflict-validation: build
 
 conflict-validation-dry-run: build
 	$(RUNNER) matrix --config configs/conflictvalidation.json --results-base conflict_validation --dry-run
+
+# Raft-only high-concurrency scaling: does the replica-scaling penalty at
+# c32 persist at c128/c256? 4 replica counts x 2 concurrency levels x 5
+# repetitions = 40 runs, under results/scaling-conc/. The --reps 5 override
+# is explicit: the runner's default minimum is 10 repetitions, and the
+# config alone cannot under-sample.
+scaling-conc: build
+	$(RUNNER) matrix --config configs/scaling-conc.json --results-base scaling-conc --reps 5 --schedule-seed $(SEED) --skip-existing
+
+scaling-conc-dry-run: build
+	$(RUNNER) matrix --config configs/scaling-conc.json --results-base scaling-conc --reps 5 --dry-run
+
+scaling-conc-report:
+	$(PY) report/process.py --raw results/scaling-conc/raw --processed results/scaling-conc/processed
 
 # Report for the three families above, each from its own raw subtree.
 persistence-report:

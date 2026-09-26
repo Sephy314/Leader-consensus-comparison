@@ -41,7 +41,7 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	results := runConfigs([]labcfg.Run{cfg}, *rep, 0, false)
+	results := runConfigs([]labcfg.Run{cfg}, *rep, 0, false, minRepetitions)
 	return summarize(results)
 }
 
@@ -74,14 +74,7 @@ type MatrixSpec struct {
 	Persistence  *PersistenceSpec  `json:"persistence"`
 	NetworkDelay *NetworkDelaySpec `json:"networkdelay"`
 	ConflictVal  *ConflictValSpec  `json:"conflictvalidation"`
-}
-
-type WorkloadSpec struct {
-	ReadPcts        []int    `json:"read_pcts"`
-	Concurrencies   []int    `json:"concurrencies"`
-	Protocols       []string `json:"protocols"`
-	Implementations []string `json:"implementations"` // optional; empty = each protocol's primary implementation
-	Replicas        int      `json:"replicas"`
+	ScalingConc  *ScalingConcSpec  `json:"scalingconc"`
 }
 
 type ScalingSpec struct {
@@ -90,6 +83,27 @@ type ScalingSpec struct {
 	Concurrency     int      `json:"concurrency"`
 	Protocols       []string `json:"protocols"`
 	Implementations []string `json:"implementations"` // optional; empty = each protocol's primary implementation
+}
+
+// ScalingConcSpec is the Raft-only high-concurrency scaling follow-up:
+// replica count x client concurrency at 100% writes. It exists because the
+// recorded scaling family is fixed at concurrency 32 and the recorded
+// concurrency family is fixed at 3 replicas, so neither covers the
+// interaction. Raft only: the question is whether the replica-scaling
+// penalty observed at c32 persists under higher offered concurrency.
+type ScalingConcSpec struct {
+	Protocols     []string `json:"protocols"`
+	Replicas      []int    `json:"replicas"`
+	WritePct      int      `json:"write_pct"`
+	Concurrencies []int    `json:"concurrencies"`
+}
+
+type WorkloadSpec struct {
+	ReadPcts        []int    `json:"read_pcts"`
+	Concurrencies   []int    `json:"concurrencies"`
+	Protocols       []string `json:"protocols"`
+	Implementations []string `json:"implementations"` // optional; empty = each protocol's primary implementation
+	Replicas        int      `json:"replicas"`
 }
 
 // ConflictSpec is the conflict-rate sensitivity experiment: vary the
@@ -214,7 +228,7 @@ type FailureCase struct {
 func cmdMatrix(args []string) error {
 	fs := flag.NewFlagSet("matrix", flag.ContinueOnError)
 	configPath := fs.String("config", "configs/matrix.json", "matrix config")
-	only := fs.String("only", "", "run only this experiment family (workload|scaling|conflict|concurrency|failure|election)")
+	only := fs.String("only", "", "run only this experiment family (workload|scaling|conflict|concurrency|failure|election|scalingconc)")
 	limit := fs.Int("limit", 0, "limit number of runs (0 = no limit)")
 	scheduleSeed := fs.Int64("schedule-seed", 1, "seed for the blocked-randomization execution schedule (recorded in the manifest)")
 	skipExisting := fs.Bool("skip-existing", false, "skip runs that already completed in an earlier batch (resume an interrupted matrix)")
@@ -222,6 +236,7 @@ func cmdMatrix(args []string) error {
 	rerunIDs := fs.String("rerun-ids", "", "re-run the completed runs named in this file (one run ID per line, optional tab-separated reason) as new attempts")
 	base := fs.String("results-base", "", "results subtree to write to (empty = the primary dataset)")
 	dryRun := fs.Bool("dry-run", false, "expand the matrix, print the run IDs and configuration that would be executed, and exit without running anything")
+	reps := fs.Int("reps", 0, "override the configured repetitions for this invocation (0 = use the config). Explicit opt-in for follow-up experiments that deliberately sample fewer than the default minimum of 10; the runner refuses to under-sample without it.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -246,8 +261,19 @@ func cmdMatrix(args []string) error {
 	if *limit > 0 && len(configs) > *limit {
 		configs = configs[:*limit]
 	}
+	minReps := minRepetitions
+	if *reps > 0 {
+		// Explicit designer-chosen sample size for a follow-up experiment.
+		// The override is loud: the config alone cannot under-sample, and the
+		// effective repetition count is recorded in every run's metadata.
+		fmt.Printf("matrix: --reps %d overrides the configured repetitions (default minimum %d)\n", *reps, minRepetitions)
+		minReps = 1
+		for i := range configs {
+			configs[i].Repetitions = *reps
+		}
+	}
 	fmt.Printf("matrix: %d run configurations\n", len(configs))
-	results := runConfigs(configs, 0, *scheduleSeed, *skipExisting)
+	results := runConfigs(configs, 0, *scheduleSeed, *skipExisting, minReps)
 	return summarize(results)
 }
 
@@ -531,6 +557,23 @@ func expandMatrix(spec MatrixSpec, only string) []labcfg.Run {
 			}
 		}
 	}
+	if spec.ScalingConc != nil && (only == "" || only == "scalingconc") {
+		for _, proto := range spec.ScalingConc.Protocols {
+			for _, n := range spec.ScalingConc.Replicas {
+				for _, c := range spec.ScalingConc.Concurrencies {
+					cfg := base
+					cfg.Experiment = "scaling-conc"
+					cfg.Protocol = proto
+					cfg.Replicas = n
+					cfg.WritePct = spec.ScalingConc.WritePct
+					cfg.ReadPct = 100 - spec.ScalingConc.WritePct
+					cfg.Concurrency = c
+					cfg.Failure = labcfg.Failure{Mode: labcfg.FailureNone}
+					out = append(out, cfg)
+				}
+			}
+		}
+	}
 	return out
 }
 
@@ -621,15 +664,15 @@ func buildSchedule(configs []labcfg.Run, seed int64) []schedItem {
 // skipExisting is the resume path: a run that already completed in an earlier
 // batch is not repeated. Its original schedule position stays recorded in its
 // metadata, so the schedule remains reproducible across batches.
-func runConfigs(configs []labcfg.Run, singleRep int, scheduleSeed int64, skipExisting bool) []runResult {
+func runConfigs(configs []labcfg.Run, singleRep int, scheduleSeed int64, skipExisting bool, minReps int) []runResult {
 	env := measuredEnv()
 	fmt.Printf("batch %s\n", env.batchID)
 	for _, cfg := range configs {
-		if singleRep == 0 && cfg.Repetitions < minRepetitions {
+		if singleRep == 0 && cfg.Repetitions < minReps {
 			fmt.Fprintf(os.Stderr, "error: %s requires %d repetitions, got %d (minimum %d); refusing to under-sample\n",
-				runIDFor(cfg, 1), cfg.Repetitions, cfg.Repetitions, minRepetitions)
+				runIDFor(cfg, 1), cfg.Repetitions, cfg.Repetitions, minReps)
 			return []runResult{{RunID: runIDFor(cfg, 1), Status: "failed", Reason: fmt.Sprintf(
-				"repetitions %d < minimum %d", cfg.Repetitions, minRepetitions)}}
+				"repetitions %d < minimum %d", cfg.Repetitions, minReps)}}
 		}
 	}
 
