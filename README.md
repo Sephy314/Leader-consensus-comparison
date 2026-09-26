@@ -157,7 +157,7 @@ universal properties of leader-based or leaderless consensus.
 | Configuration reports | `lab/results/failure-configuration.md` (failure-detection budget beside every measured availability gap), `lab/results/resource-contention.md` (per-replica CPU saturation at each replica count) |
 | Processed measurements | `lab/results/processed/` (per-run metrics, per-configuration summaries, failure and run indexes) |
 | Figures and report | `lab/results/figures/`, `lab/results/report/index.html` |
-| Paper | `paper/release/The-Effects-of-Leadership-in-Distributed-Consensus.pdf` (English) and `...-ko.pdf` (Korean translation); sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
+| Paper | `paper/release/The-Effects-of-Leadership-in-Distributed-Consensus.pdf` (English) and `paper/release/분산-합의에서-리더십의-효과.pdf` (Korean translation); sources in `paper/main.tex`, `paper/sections/`, `paper/tables/`, figures in `paper/figures/` |
 
 `lab/results/` is generated and is not tracked by git; `make matrix`
 regenerates the dataset, and `make report` regenerates every figure and the
