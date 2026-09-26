@@ -94,7 +94,11 @@ workloads and restart scenarios but does not constitute a formal
 verification of consensus correctness or establish general linearizability.
 In particular, the tested workloads do not exercise every possible pattern
 of conflicting operations and message reordering that could expose an
-ordering violation.
+ordering violation. The harness writes a distinct key per request, so it
+does not exercise concurrent writes to the same key, and no linearizability
+checker was run against the recorded histories; it is therefore a
+convergence check rather than an independent test of operation-order
+semantics under contention.
 
 \subsection{Statistical Conclusion Validity}
 
@@ -112,7 +116,11 @@ multiplicity correction is applied (Section~\ref{sec:setup}): a $p$-value
 quoted in the evaluation is the uncorrected value for that single
 comparison. Tests are reported next to the family they belong to, so the
 number of comparisons behind a claim is visible, and we rely on comparisons
-that are well separated rather than on borderline significance.
+that are well separated rather than on borderline significance. The
+separation is wide enough that the choice does not matter: every result
+reported as significant is at $p\le0.001$, and no family here contains more
+than ten tests, so a Holm--Bonferroni correction at $\alpha=0.05$ would
+leave each of those results significant.
 
 The election correlation analysis requires particular caution: the measured
 failed-election count is an outcome of the recovery process and is

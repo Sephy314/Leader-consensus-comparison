@@ -80,7 +80,7 @@ two implementations.
 
 For the scaling family, the difference between the implementations was
 statistically significant at three and five replicas (exact Mann--Whitney
-$U$ test, $p<0.001$), while no statistically significant difference was
+$U$ test, uncorrected $p<0.001$), while no statistically significant difference was
 detected at seven ($p=0.12$) or nine ($p=0.32$) replicas. The 95\,\%
 bootstrap confidence intervals of the medians overlap at seven and nine
 replicas (Table~\ref{tab:scaling}). The measured EPaxos/Raft throughput
@@ -540,6 +540,11 @@ these three implementations, and the p50 medians remain in 6.7--6.9\,ms,
 4.8--5.1\,ms and 5.66--5.68\,ms respectively. This reproduces the recorded
 null result for these implementations and shows that it is not explained
 by the configured fraction failing to produce the intended access pattern.
+The tails behave the same way over 0--75\,\%: the p99 medians stay within
+10.4--11.4\,ms for etcd Raft, 14.8--17.3\,ms for HashiCorp Raft and
+13.3--17.0\,ms for the original EPaxos, whereas nvb EPaxos moves from 16.6
+to 36.1\,ms together with its median (2.04$\times$ and 2.12$\times$ at
+75\,\% against 0\,\%).
 
 nvb EPaxos is the exception. Its median throughput declined monotonically with
 the configured fraction over 0--75\,\%, from 4{,}123 to 2{,}129\,req/s with one

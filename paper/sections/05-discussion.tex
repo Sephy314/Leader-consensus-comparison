@@ -48,6 +48,19 @@ the keyspace retains cold keys. The fourth, nvb EPaxos, declined
 monotonically with the configured fraction, which makes conflict sensitivity
 implementation-specific rather than a property of the protocol family.
 
+These results bear on prior comparisons. Howard and Mortier found
+implementation and configuration to matter more than the protocol family
+\cite{howard2020raft}, which matches the spread we measure between
+implementations of the same family. van Renesse et al. and Tollman et al.
+reported that conflict changes the relative performance of the two designs
+and degrades the tail under geo-replication \cite{vanrenesse2015paxos,
+tollman2021epaxos}; here the configured fraction left the tail as well as the
+median unchanged for three of the four implementations (p99 ratios of
+0.96--1.09 at 75\,\% against 0\,\%) and moved nvb EPaxos's median and tail
+together. A mechanism that needs cross-site or same-key contention would not
+appear in this single-host hot-key workload, which is the configuration in
+which we can measure it.
+
 Overall, RQ1 indicates that replica count and concurrency produced the most
 visible changes in the measured performance, while write ratio and conflict
 ratio produced weaker or implementation-specific effects. These findings
