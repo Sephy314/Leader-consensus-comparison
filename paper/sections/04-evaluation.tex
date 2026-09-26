@@ -374,6 +374,19 @@ added communication delay. The 95\,\% confidence intervals of the means
 were separated between the evaluated implementations at every non-zero
 delay level.
 
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.78\columnwidth]{figures/throughput-commcost.pdf}\\[2pt]
+\includegraphics[width=0.78\columnwidth]{figures/networkdelay-throughput.pdf}
+\caption{Throughput against added one-way delay at 3 replicas, 100\,\% writes
+and concurrency 32, for the four evaluated implementations. (a)~Delay injected
+inside each implementation's send path, where the implementations diverge
+sharply. (b)~The same nominal delay applied to inter-replica traffic with
+\texttt{tc/netem}, leaving the implementations unmodified, where the spread is
+much narrower.}
+\label{fig:delay-merged}
+\end{figure}
+
 Median latency increased with the injected delay for all four
 implementations. At 10\,ms, the measured p50 values were 22.6\,ms for
 HashiCorp Raft, 36.2\,ms for nvb EPaxos, 125.9\,ms for original EPaxos,
@@ -498,19 +511,6 @@ consistent with the emulation delaying each inter-replica exchange in both
 directions rather than a single send. The two mechanisms are not
 interchangeable, and the controlled family is the evidence used here for
 delay sensitivity.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.45\textwidth]{figures/throughput-commcost.pdf}\hfill
-\includegraphics[width=0.45\textwidth]{figures/networkdelay-throughput.pdf}
-\caption{Throughput against added one-way delay at 3 replicas, 100\,\% writes
-and concurrency 32, for the four evaluated implementations. (a)~Delay injected
-inside each implementation's send path, where the implementations diverge
-sharply. (b)~The same nominal delay applied to inter-replica traffic with
-\texttt{tc/netem}, leaving the implementations unmodified, where the spread is
-much narrower.}
-\label{fig:delay-merged}
-\end{figure*}
 
 \subsection{Conflict Validation}
 
