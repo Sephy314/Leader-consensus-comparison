@@ -3,7 +3,8 @@
 100\,\% writes and concurrency 32. Brackets show the 95\,\% bootstrap
 confidence interval of the median. Medians are used because several
 repetitions stalled (see Section~\ref{sec:evaluation}); the mean is lower
-for both protocols at every replica count.}
+for Raft at every replica count and for EPaxos at five and seven
+replicas.}
 \label{tab:scaling}
 \footnotesize
 \setlength{\tabcolsep}{2pt}
@@ -11,10 +12,10 @@ for both protocols at every replica count.}
 \toprule
 Replicas & Raft & \multicolumn{1}{c}{95\,\% CI} & EPaxos & \multicolumn{1}{c}{95\,\% CI} & \shortstack{EPaxos/\\Raft} \\
 \midrule
-3 & 4{,}351 & [2{,}612--4{,}468] & 5{,}292 & [5{,}118--5{,}581] & 1.22$\times$ \\
-5 & 3{,}150 & [2{,}771--3{,}346] & 5{,}443 & [4{,}469--5{,}611] & 1.73$\times$ \\
-7 & 2{,}590 & [1{,}522--2{,}608] & 3{,}053 & [1{,}405--4{,}436] & 1.18$\times$ \\
-9 & 2{,}113 & [1{,}450--2{,}160] & 2{,}094 & [1{,}386--3{,}074] & 0.99$\times$ \\
+3 & 4{,}350 & [2{,}610--4{,}494] & 5{,}291 & [5{,}117--5{,}598] & 1.22$\times$ \\
+5 & 3{,}148 & [2{,}770--3{,}346] & 5{,}442 & [4{,}468--5{,}610] & 1.73$\times$ \\
+7 & 2{,}589 & [1{,}522--2{,}608] & 2{,}903 & [1{,}404--4{,}435] & 1.12$\times$ \\
+9 & 2{,}112 & [1{,}337--2{,}159] & 2{,}002 & [1{,}318--3{,}183] & 0.95$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -19,13 +19,13 @@ experiment directly isolates the corresponding mechanism.
 Figure~\ref{fig:throughput-scaling} shows measured throughput as the
 number of replicas increases. Throughput decreased with replica count for
 both evaluated implementations. At three replicas, the measured median was
-5{,}292\,req/s for EPaxos and 4{,}351\,req/s for Raft. At five replicas,
-the medians were 5{,}443 and 3{,}150\,req/s, respectively, while at nine
-replicas they were 2{,}094 and 2{,}113\,req/s (Table~\ref{tab:scaling}).
+5{,}291\,req/s for EPaxos and 4{,}350\,req/s for Raft. At five replicas,
+the medians were 5{,}442 and 3{,}148\,req/s, respectively, while at nine
+replicas they were 2{,}002 and 2{,}112\,req/s (Table~\ref{tab:scaling}).
 Relative to the three-replica measurement within this experiment family,
-the nine-replica median was 60\,\% lower for EPaxos and 51\,\% lower for
+the nine-replica median was 62\,\% lower for EPaxos and 51\,\% lower for
 Raft. The ratio of the two medians was 1.22 at three replicas, 1.73 at
-five, 1.18 at seven, and 0.99 at nine replicas. Thus, the measured
+five, 1.12 at seven, and 0.95 at nine replicas. Thus, the measured
 throughput difference varied with replica count, and no statistically
 significant difference was detected at nine replicas.
 
@@ -33,20 +33,21 @@ We report medians rather than means because a small number of repetitions
 stalled. Across the entire dataset (1{,}302 runs), eight repetitions
 completed fewer than 10\,\% of the requests of their configuration's
 median: two Raft runs (0.3\,\% of Raft runs) and six EPaxos runs (1.0\,\%
-of EPaxos runs). Seven of the eight were slow from start to finish with no
-failed requests, while one EPaxos run at nine replicas showed persistent
-request timeouts. The two Raft stalls coincided with elevated host load
-(load average 6.9--8.5 against 3--4 for healthy runs of the same
-configuration); the six EPaxos stalls occurred at both low and high host
-load. None of the eight runs was flagged by the host-telemetry
+of EPaxos runs). Six of the eight were slow from start to finish with no
+failed requests, while two EPaxos runs, at seven and nine replicas, showed
+persistent request timeouts. The two Raft stalls coincided with elevated
+host load (load average 7.0--8.6 against 3.8--4.0 for healthy runs of the
+same configuration); the six EPaxos stalls occurred at both low and high
+host load. None of the eight runs was flagged by the host-telemetry
 contamination rule, so they remain in the dataset. The observed stall
-counts (2 of 690 Raft runs and 6 of 612 EPaxos runs) were not significantly
+counts (2 of 680 Raft runs and 6 of 610 EPaxos runs) were not significantly
 different (Fisher's exact test, $p=0.16$).
 
 A second anomaly affects EPaxos at seven and nine replicas: request
-timeouts. Every EPaxos run at those sizes except one had 30--250 requests
-time out at the 2{,}000\,ms client timeout (success rates 98.6--99.9\,\%),
-while Raft runs at the same sizes had no timeouts. Each timeout occupies a
+timeouts. Eighteen of the twenty EPaxos runs at those sizes had 30--247
+requests time out at the 2{,}000\,ms client timeout (success rates
+98.6--99.9\,\%); the other two completed every request, and Raft runs at the
+same sizes had no timeouts. Each timeout occupies a
 client worker for the full 2\,s, reducing the concurrency available to
 successful requests. For a closed-loop client with concurrency $N$, the
 accounting
@@ -56,9 +57,11 @@ N \approx X_{\mathrm{ok}}W_{\mathrm{ok}}
   + X_{\mathrm{timeout}}W_{\mathrm{timeout}},
 $$
 
-where $X_{\mathrm{timeout}}=N_{\mathrm{timeout}}/20\,\mathrm{s}$ and
-$W_{\mathrm{timeout}}=2\,\mathrm{s}$, is consistent with every EPaxos run
-at these sizes. The successful requests themselves completed in
+where $X_{\mathrm{timeout}}=N_{\mathrm{timeout}}/W$ and
+$W_{\mathrm{timeout}}=2\,\mathrm{s}$, with $W$ the measured phase window
+(20.0--22.0\,s in these runs), is consistent with every EPaxos run at
+these sizes to within 0.8\,\% of $N$. The successful requests themselves
+completed in
 5.4--5.6\,ms at p50, similar to the three-replica measurements, so the
 reduced throughput is accounted for by requests occupying workers until the
 timeout rather than by slower successful requests. The available
@@ -68,9 +71,9 @@ responsible for the timeouts.
 The same nominal configuration (three replicas, 100\,\% writes, and
 concurrency 32) also occurs independently in several other steady-state
 experiment families. These repeated measurements provide an indication of
-run-to-run variability. The four family medians were 4{,}351, 4{,}368,
-4{,}483, and 4{,}441\,req/s for Raft, and 5{,}292, 5{,}288, 5{,}177, and
-5{,}250\,req/s for EPaxos. The EPaxos medians differed by approximately
+run-to-run variability. The four family medians were 4{,}350, 4{,}367,
+4{,}482, and 4{,}440\,req/s for Raft, and 5{,}291, 5{,}287, 5{,}175, and
+5{,}249\,req/s for EPaxos. The EPaxos medians differed by approximately
 2\,\% across these measurements, and the Raft medians by approximately
 3\,\%. Cross-family variability was therefore of similar magnitude for the
 two implementations.
@@ -99,13 +102,13 @@ Figure~\ref{fig:throughput-concurrency} shows throughput across the client
 concurrency sweep. Throughput increased with concurrency for both
 implementations over the tested range. At concurrency 1, the measured
 medians were 304\,req/s for Raft and 175\,req/s for EPaxos. At concurrency
-256, the medians were 19{,}333\,req/s and 41{,}077\,req/s, respectively.
+256, the medians were 19{,}278\,req/s and 41{,}069\,req/s, respectively.
 The largest individual observations at concurrency 256 were 21{,}656\,req/s
 for Raft and 43{,}681\,req/s for EPaxos.
 
-Between concurrency 64 and 256, the Raft median increased from 7{,}020 to
-19{,}333\,req/s, while the EPaxos median increased from 10{,}712 to
-41{,}077\,req/s. Both implementations therefore continued to gain
+Between concurrency 64 and 256, the Raft median increased from 7{,}673 to
+19{,}278\,req/s, while the EPaxos median increased from 10{,}862 to
+41{,}069\,req/s. Both implementations therefore continued to gain
 throughput as concurrency increased, although the magnitude of the
 increase differed between the two implementations.
 
@@ -118,16 +121,16 @@ increase differed between the two implementations.
 \end{figure}
 
 Figure~\ref{fig:throughput-write-ratio} shows throughput across the
-write-ratio sweep. EPaxos medians ranged from 5{,}173 to 5{,}462\,req/s,
-while Raft medians ranged from 4{,}220 to 4{,}463\,req/s. Neither
+write-ratio sweep. EPaxos medians ranged from 5{,}165 to 5{,}461\,req/s,
+while Raft medians ranged from 4{,}219 to 4{,}474\,req/s. Neither
 implementation exhibited a monotonic or otherwise consistent throughput
 trend across the tested write ratios. The highest EPaxos median occurred at
-10\,\% writes, approximately 5\,\% above its 100\,\% write measurement,
-while the highest Raft median occurred at 0\,\% writes.
+10\,\% writes, approximately 4\,\% above its 100\,\% write measurement,
+and the highest Raft median also occurred at 10\,\% writes.
 
 The variation across write ratios was not statistically significant. A
-Kruskal--Wallis test of the five write-ratio groups gave $H=1.35$ for Raft
-and $H=1.69$ for EPaxos, both below the $\chi^2_4$ critical value of 9.49.
+Kruskal--Wallis test of the five write-ratio groups gave $H=1.68$ for Raft
+and $H=1.75$ for EPaxos, both below the $\chi^2_4$ critical value of 9.49.
 The measurements therefore do not provide evidence of a systematic
 throughput effect associated with write ratio under the tested conditions.
 
@@ -141,9 +144,9 @@ throughput effect associated with write ratio under the tested conditions.
 
 Figure~\ref{fig:throughput-conflict-ratio} shows throughput across the
 configured conflict-ratio sweep. Median throughput ranged from
-4{,}152 to 4{,}504\,req/s for Raft and from 5{,}079 to 5{,}392\,req/s for
+4{,}149 to 4{,}512\,req/s for Raft and from 5{,}078 to 5{,}391\,req/s for
 EPaxos. A Kruskal--Wallis test of the seven conflict-ratio groups gave
-$H=3.71$ for Raft and $H=3.18$ for EPaxos, both below the $\chi^2_6$
+$H=4.44$ for Raft and $H=3.13$ for EPaxos, both below the $\chi^2_6$
 critical value of 12.59. No monotonic throughput relationship with the
 configured conflict ratio was observed for either implementation.
 
@@ -208,14 +211,14 @@ measured 5.6\,ms in both.
 For a closed-loop client, Little's law relates mean latency to concurrency
 and throughput as $W=N/X$. The reported p50 is the median rather than the
 mean, so it need not equal this quantity. At concurrency 256, the Raft p50
-of 12.1\,ms was close to $N/X$ (256/19{,}333 $\approx$ 13.2\,ms), while the
-EPaxos p50 of 5.6\,ms was below $N/X$ (256/41{,}077 $\approx$ 6.2\,ms).
+of 12.1\,ms was close to $N/X$ (256/19{,}278 $\approx$ 13.3\,ms), while the
+EPaxos p50 of 5.6\,ms was below $N/X$ (256/41{,}069 $\approx$ 6.2\,ms).
 This difference is compatible with a response-time distribution whose
 median is below its mean. We report p50, p95, and p99 in the processed
 dataset and use p50 here as the central-tendency summary.
 
 At seven and nine replicas, the EPaxos p50 of 5.4--5.5\,ms was substantially
-below $N/X$ (32/2{,}094--3{,}053 $\approx$ 10.5--15.3\,ms). As described in
+below $N/X$ (32/2{,}002--2{,}903 $\approx$ 11.0--16.0\,ms). As described in
 Section~\ref{sec:evaluation}, this difference is accounted for by the
 request timeouts at those sizes: each timeout occupies a worker for the
 full 2\,s, and the closed-loop concurrency accounting including the timeout
@@ -236,10 +239,10 @@ median.}
 
 Figure~\ref{fig:resource-utilisation} summarises the per-replica resource
 measurements. Across the evaluated runs, mean per-replica CPU utilisation
-was 35.8\,\% for Raft and 35.0\,\% for EPaxos. Mean peak per-replica RSS
-was 26.4\,MB for Raft and 46.8\,MB for EPaxos. Mean per-replica network
-rates were 441\,kB/s RX and 443\,kB/s TX for Raft, compared with
-408\,kB/s RX and 392\,kB/s TX for EPaxos.
+was 36.5\,\% for Raft and 35.4\,\% for EPaxos. Mean peak per-replica RSS
+was 28.3\,MB for Raft and 46.4\,MB for EPaxos. Mean per-replica network
+rates were 451\,kB/s RX and 454\,kB/s TX for Raft, compared with
+410\,kB/s RX and 394\,kB/s TX for EPaxos.
 
 \begin{figure*}[t]
 \centering
@@ -419,6 +422,225 @@ four evaluated implementations.}
 \label{fig:throughput-commcost-jitter}
 \end{figure}
 
+\subsection{Persistence Matching}
+
+\label{sec:persistence-results}
+
+The recorded baseline compares Raft implementations that persist their logs to
+storage with EPaxos implementations that keep replica state in memory
+(Section~\ref{sec:threats}). The persistence-matching family holds workload,
+replica count, concurrency and network constant and varies only the storage
+mode, using only modes the implementation itself provides. It is analysed from
+its own results subtree and never pooled with the recorded dataset; 140 of its
+147 runs were included, and every condition retains its planned ten
+repetitions after the replacements described at the end of
+Section~\ref{sec:conflict-results}.
+
+Table~\ref{tab:persistence} and
+Figure~\ref{fig:throughput-persistence} show throughput at three and five
+replicas. The two modes that reproduce the recorded baseline agree with it: at
+three replicas the durable HashiCorp Raft median of 4{,}425\,req/s is
+1.7\,\% above the recorded 4{,}350\,req/s, and the in-memory original EPaxos
+median of 5{,}585\,req/s is 5.6\,\% above the recorded 5{,}291\,req/s, the
+upper edge of the 2--3\,\% cross-family spread reported above.
+
+Matching the storage mode changes the direction of the comparison at both
+replica counts. With both implementations in memory, HashiCorp Raft measured
+29{,}660\,req/s against 5{,}585\,req/s for the original EPaxos (5.3$\times$);
+with both durable, 4{,}425 against 2{,}005 (2.2$\times$). In the second pair,
+etcd Raft measured 12{,}884\,req/s against 4{,}226\,req/s for nvb EPaxos in
+memory at three replicas (3.0$\times$) and 8{,}437 against 1{,}600 at five
+replicas (5.3$\times$). Every matched comparison in this family therefore
+places the Raft implementation above the EPaxos implementation, and each is
+significant (exact Mann--Whitney $U$ test, $p<0.001$). The durable cell of the
+second pair has no EPaxos counterpart: the nvb EPaxos library offers only
+in-memory storage, and no persistence mechanism was added to fill the gap, so
+the figure shows that bar for Raft alone.
+
+The storage modes account for the reversal. Relative to the same
+implementation's in-memory median, durable storage retained 15\,\% for
+HashiCorp Raft, 48\,\% for etcd Raft and 36\,\% for the original EPaxos at
+three replicas, and 13\,\%, 69\,\% and 33\,\% at five replicas ($p<0.001$ for
+each comparison). The recorded comparison therefore measured the
+implementation with the largest durability cost (HashiCorp Raft, which loses
+85\,\% of its in-memory throughput when its log is persisted) against one
+whose evaluated mode is in-memory (the original EPaxos, which loses 64\,\%
+when made durable). The recorded EPaxos/Raft ratio of 1.22 is consistent with
+that pairing, so it should not be read as a property of the two protocol
+families. This family measures one workload at two replica counts, so it
+establishes that the recorded ordering depends on the storage modes; it does
+not establish that persistence-matched deployments would order the two
+families the same way at other replica counts or write ratios.
+
+The p50 ordering follows the throughput ordering. At three and five replicas,
+durable HashiCorp Raft measured 6.8 and 9.3\,ms against 0.8 and 0.9\,ms in
+memory; durable etcd Raft 4.9 and 5.1\,ms against 1.7 and 2.9\,ms in memory;
+durable original EPaxos 14.5 and 15.6\,ms against 5.7 and 5.5\,ms in memory;
+and in-memory nvb EPaxos 7.1 and 18.6\,ms.
+
+\input{tables/tab-persistence}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/persistence-throughput-matched.pdf}
+\caption{Median throughput (req/s) by storage mode at 100\,\% writes and
+concurrency 32, for the two implementation pairs. Bars show the median of the
+included repetitions; error bars show the observed range. Pair A is HashiCorp
+Raft against the original EPaxos and pair B is etcd Raft against nvb EPaxos.
+The durable cell of pair B contains a Raft bar only, because the nvb EPaxos
+library provides no durable mode.}
+\label{fig:throughput-persistence}
+\end{figure*}
+
+\subsection{Controlled Network Delay}
+
+\label{sec:delay-results}
+
+The communication-cost family described above injects delay inside each
+implementation's send path. The controlled network-delay family applies the
+same nominal condition from outside the implementations: the runner installs a
+\texttt{tc/netem} qdisc inside each replica's network namespace and delays only
+traffic addressed to another replica, so no adapter sleeps and no consensus
+source is modified. The 0\,ms point is the family's own baseline, recorded with
+\texttt{applied=false} rather than with an installed qdisc. All 200 runs were
+included and none was flagged by the host-telemetry rule.
+
+Median throughput declined monotonically with the applied delay for all four
+implementations (Figure~\ref{fig:throughput-networkdelay}); a Kruskal--Wallis
+test over the five delay levels gives $H=47.06$ against $\chi^2_4=9.49$ for
+each implementation, and the observed range of the ten repetitions does not
+overlap between adjacent delay levels for any of them. At 10\,ms the
+implementations retained 18.1\,\% (HashiCorp Raft), 17.6\,\% (etcd Raft),
+13.8\,\% (original EPaxos) and 9.0\,\% (nvb EPaxos) of their 0\,ms medians.
+The p50 latency at 10\,ms was 36.9, 25.7, 44.6 and 83.0\,ms, respectively,
+against 6.6, 4.7, 5.7 and 6.8\,ms at 0\,ms.
+
+The controlled condition compresses the differences between implementations
+that the application-level family measured. Retaining delay outside the
+implementations, the fraction of the 0\,ms throughput retained at the same
+nominal 10\,ms spans 9.0--18.1\,\% across the four implementations, a factor
+of two. Under application-level injection the corresponding spread was
+0.7--28.4\,\%, a factor of forty: etcd Raft retained 0.7\,\% and the original
+EPaxos 4.0\,\%, whereas the same two implementations retained 17.6\,\% and
+13.8\,\% under OS-level emulation. The near-collapse of etcd Raft measured by
+the application-level family is therefore attributable to the injection
+mechanism, the per-message sleeps on the adapters' send paths, rather than to
+added delay as such, as Section~\ref{sec:threats} anticipated. The ordering
+across implementations also changes: the two implementations that retained the
+most under application-level delay (HashiCorp Raft at 28.4\,\% and nvb EPaxos
+at 19.2\,\%) retain less at 10\,ms under OS-level emulation (18.1\,\% and
+9.0\,\%), consistent with the emulation delaying each inter-replica exchange
+in both directions rather than a single send. The two mechanisms are not
+interchangeable conditions, and the controlled family is the evidence used
+here for delay sensitivity; the application-level measurements are retained as
+a characterisation of each implementation's send path.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\columnwidth]{figures/networkdelay-throughput.pdf}
+\caption{Median throughput (req/s) against one-way delay applied to
+inter-replica traffic with \texttt{tc/netem} at 3 replicas, 100\,\% writes and
+concurrency 32, for the four evaluated implementations. No jitter is applied.}
+\label{fig:throughput-networkdelay}
+\end{figure}
+
+\subsection{Conflict Validation}
+
+\label{sec:conflict-results}
+
+The recorded conflict-ratio sweep configures how often the workload targets a
+hot key, but a configured fraction does not by itself establish the access
+pattern that was realised or the protocol-level contention it produced. The
+conflict-validation family re-runs the sweep while varying both the configured
+hot-key fraction and the number of distinct hot keys that fraction targets,
+and records the realised fraction from the per-request hot flag; 480 of its 492
+runs were included, twelve excluded as three flagged attempts and their nine
+replaced predecessors, so all 48 conditions contain ten repetitions.
+
+Figure~\ref{fig:conflict-validation}(a) shows that the workload delivered what
+it configured. With a single hot key the top key's share of requests equalled
+the configured fraction (9.9, 24.9, 49.7, 74.8 and 100.0\,\% at 10, 25, 50, 75
+and 100\,\%); with eight hot keys it was one eighth of it, as the design
+intends. At 100\,\% the workload contains no cold keys at all, leaving one or
+eight distinct keys observed per run, so that point is not on the same
+continuum as the rest of the sweep and is reported separately below.
+
+Throughput showed no systematic relationship with the configured fraction.
+For HashiCorp Raft the medians span 4{,}354 to 4{,}541\,req/s across both
+key-set sizes, for etcd Raft 5{,}848 to 6{,}301\,req/s, and for the original
+EPaxos 5{,}448 to 5{,}517\,req/s. Kruskal--Wallis tests over the 0--75\,\%
+points give $H\leq6.73$ against $\chi^2_4=9.49$ for the six combinations of
+these three implementations, and the p50 medians remain in 6.7--6.9\,ms,
+4.8--5.1\,ms and 5.66--5.68\,ms respectively. This reproduces the recorded
+null result for these implementations and shows that it is not explained
+by the configured fraction failing to produce the intended access pattern.
+
+nvb EPaxos is the exception. Its median throughput declined monotonically with
+the configured fraction over 0--75\,\%, from 4{,}123 to 2{,}129\,req/s with one
+hot key and from 4{,}238 to 2{,}324\,req/s with eight ($H=42.28$ and
+$H=41.84$), and its p50 rose from 7.3 to 13.9\,ms and from 7.1 to
+12.4\,ms. At 100\,\% both of its medians rise above their 0\,\% values, to
+6{,}103\,req/s and 6{,}631\,req/s with p50 values of 5.1 and 4.5\,ms. The
+reversal coincides with the degenerate keyspace of that point; the
+instrumentation does not establish its mechanism, and this implementation
+exposes no protocol counters with which to probe it further. Conflict
+sensitivity in this family is therefore implementation-specific: three of the
+four implementations show no throughput response to the configured fraction
+over the range in which the keyspace still contains cold keys, while the
+fourth declines monotonically.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/conflict-validation.pdf}
+\caption{Conflict validation at 3 replicas, 100\,\% writes and concurrency 32.
+Left: the realised hot-key fraction against the configured one, which the
+per-request hot flag makes exact. Right: the EPaxos slow-path share for the one
+implementation that exposes path counters; the counters are reset whenever the
+server accepts a client connection, so they cover approximately 9.5\,\% of the
+successful requests of a run.}
+\label{fig:conflict-validation}
+\end{figure*}
+
+Figure~\ref{fig:conflict-validation}(b) reports the one protocol-level
+indicator available: the path mix of the original EPaxos implementation. Its
+slow-path share declines as the configured fraction rises, from 97.8 to
+43.8\,\% with one hot key and from 97.9 to 72.5\,\% with eight. The
+\texttt{conflicted} counter behaves the same way, but in this implementation it
+counts replicas whose \texttt{PreAccept} replies disagree on an instance's
+sequence number and dependencies, not key conflicts. Because the counters are
+reset on each accepted client connection, they describe the interval since that
+connection rather than the measured phase, covering about 9.5\,\% of the
+successful requests. The coverage is near-constant across every condition of
+this family, which makes the shares comparable between conditions, but it
+leaves them a within-window indicator rather than a census of the measured
+phase. Stated with that limitation, the observed direction is the opposite of
+the expectation that a higher configured conflict fraction forces more
+slow-path executions. It is consistent with instances on a hotter key being
+serialised onto that key's dependency chain, where replicas agree on sequence
+number and dependencies more often; the available instrumentation does not
+separate that reading from others, and no counter is available for nvb EPaxos
+at all.
+
+Two replacement rules were applied to the three families, and both keep the
+original attempt in the raw dataset. An attempt that failed, or that host
+telemetry flagged as contaminated, was re-run as a new attempt; so was a
+repetition that is anomalous without being flagged, which that rule cannot see:
+a run can complete at a small fraction of its configuration's median with no
+failed request and without crossing any threshold. The second rule is fixed in
+advance and applied uniformly to every condition, an included repetition
+measuring below 0.7 times the median of its own configuration is re-run, and
+the report keeps the replacement whatever its value. Eleven repetitions met the
+second rule (nine in this family, two in the persistence family); one of those
+replacements was itself flagged, and that repetition was re-run once more.
+Seven attempts were replaced by the first rule (four in the persistence family,
+three here). No included repetition of the three families now measures below
+0.7 times its condition's median (the lowest is 73\,\%), no repetition's p50
+exceeds 1.5 times that of its condition, and every condition has its planned
+ten observations. Replacing the eleven stalled repetitions and the seven flagged
+attempts moved no median reported in this section by more than 3\,\%: the
+largest change is the conflict median at eight hot keys and 25\,\%, from
+6{,}123 to 6{,}290\,req/s.
+
 \subsection{Summary of Findings}
 
 The measurements support the following observations under the evaluated
@@ -427,22 +649,22 @@ conditions:
 \begin{itemize}
 
 \item Throughput decreased with replica count for both implementations
-(nine-replica median 60\,\% below three-replica for EPaxos, 51\,\% for
+(nine-replica median 62\,\% below three-replica for EPaxos, 51\,\% for
 Raft). The EPaxos/Raft median ratio was 1.22 at three replicas, 1.73 at
-five, 1.18 at seven, and 0.99 at nine, where no statistically significant
+five, 1.12 at seven, and 0.95 at nine, where no statistically significant
 difference was detected.
 
 \item Eight of 1{,}302 repetitions stalled (two Raft, six EPaxos),
 motivating the use of medians. EPaxos at seven and nine replicas also
-showed request timeouts (30--250 per run) that account for its reduced
+showed request timeouts (30--247 per run) that account for its reduced
 throughput via the closed-loop concurrency accounting of
 Section~\ref{sec:evaluation}.
 
-\item At concurrency 256, the medians were 41{,}077\,req/s for EPaxos and
-19{,}333\,req/s for Raft, with p50 latency 5.6\,ms against 12.1\,ms.
+\item At concurrency 256, the medians were 41{,}069\,req/s for EPaxos and
+19{,}278\,req/s for Raft, with p50 latency 5.6\,ms against 12.1\,ms.
 
 \item Write ratio and conflict ratio produced no systematic throughput
-trend (Kruskal--Wallis $H\leq3.71$ against critical values of 9.49 and
+trend (Kruskal--Wallis $H\leq4.44$ against critical values of 9.49 and
 12.59).
 
 \item Raft leader termination produced an availability gap of
@@ -457,6 +679,29 @@ in the evaluated HashiCorp Raft implementation.
 \item Under 10\,ms of injected one-way delay, throughput fell by 72--96\,\%
 across the four implementations, and etcd Raft collapsed by 94\,\% at
 1\,ms, showing that implementation choice materially changes the measured
-performance relationship.
+performance relationship. That collapse is attributable to the
+application-level injection mechanism: with the same nominal delay applied
+outside the implementations, etcd Raft retained 17.6\,\% of its baseline.
+
+\item Matching the storage mode reverses the recorded throughput ordering.
+At three replicas HashiCorp Raft measured 29{,}660\,req/s against
+5{,}585\,req/s for the original EPaxos with both in memory (5.3$\times$) and
+4{,}425 against 2{,}005 with both durable (2.2$\times$), and etcd Raft
+measured 12{,}884 against 4{,}226\,req/s for nvb EPaxos in memory
+(3.0$\times$). Durable storage retained 13--69\,\% of each implementation's
+in-memory throughput, so the recorded EPaxos advantage at three replicas
+reflects which mode each implementation was run in.
+
+\item Applied outside the implementations, one-way delay cost all four
+implementations similar fractions of their throughput (9.0--18.1\,\%
+retained at 10\,ms), against a 0.7--28.4\,\% spread under application-level
+injection.
+
+\item The configured conflict fraction was realised exactly in the workload
+and produced no systematic throughput change in three of the four
+implementations, while nvb EPaxos declined monotonically over 0--75\,\%. The
+only protocol-level indicator available, the path mix of the original
+EPaxos, covers 9.5\,\% of requests and moves opposite to the naive
+expectation.
 
 \end{itemize}

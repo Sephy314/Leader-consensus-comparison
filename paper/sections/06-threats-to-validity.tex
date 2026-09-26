@@ -9,7 +9,7 @@ contain no wide-area latency, no real packet loss, and no multi-machine
 failure domains. The host is a WSL2 environment with 12 physical cores,
 placing a virtualisation layer between the containers and the hardware.
 Cluster sizes are 3--9, the keyspace is 1{,}000 keys, commands are uniform
-in size, and the measured phase is 20,s. The results therefore describe
+in size, and the measured phase is 20\,s. The results therefore describe
 short, uniform, single-host runs rather than long-lived deployments with
 skewed access patterns, large payloads, or geographically distributed
 replicas.
@@ -42,8 +42,10 @@ the original latency and throughput measurements may include persistence
 costs that are specific to the evaluated implementations rather than to the
 consensus protocols themselves. A separate persistence-control experiment
 therefore evaluates memory and durable configurations where the respective
-implementations support both modes. The nvb implementation is evaluated
-only in its supported in-memory configuration.
+implementations support both modes; its results are reported in
+Section~\ref{sec:persistence-results} and show that the recorded ordering
+depends on which storage mode each implementation was run in. The nvb
+implementation is evaluated only in its supported in-memory configuration.
 
 The EPaxos implementation is additionally modified to support the
 dependency-set sizes required by the 7- and 9-replica configurations.
@@ -63,15 +65,16 @@ distributed physical network, including packet loss, congestion,
 multi-hop routing, or independent link failures. The earlier
 application-level delay and jitter measurements are retained as legacy
 experiments but are not treated as the primary evidence for clean network
-delay sensitivity; jitter is not included in the controlled delay
-experiment.
+delay sensitivity (Section~\ref{sec:delay-results}); jitter is not included
+in the controlled delay experiment.
 
 The conflict ratio is specified through the workload's key-access pattern,
 but the configured percentage does not by itself establish the amount of
 protocol-level contention observed by EPaxos. The conflict-validation
 experiment therefore records the realised hot-key access pattern together
 with available protocol-level execution indicators, including fast- and
-slow-path behaviour where exposed by the implementation. Conclusions about
+slow-path behaviour where exposed by the implementation
+(Section~\ref{sec:conflict-results}). Conclusions about
 conflict sensitivity are limited to effects supported by both the workload
 configuration and these observed execution characteristics.
 
@@ -96,10 +99,10 @@ ordering violation.
 \subsection{Statistical Conclusion Validity}
 
 Each configuration is measured ten times, and aggregates are reported as
-medians with non-parametric bootstrap 95,% confidence intervals. Ten
+medians with non-parametric bootstrap 95\,% confidence intervals. Ten
 repetitions leave substantial uncertainty: measuring the same nominal
 configuration in four steady-state families produced medians that differed
-by 2--3,% for both protocols, and the bootstrap intervals overlap in
+by 2--3\,% for both protocols, and the bootstrap intervals overlap in
 several comparisons whose medians differ, such as at seven and nine
 replicas. We therefore treat overlapping comparisons as inconclusive rather
 than as evidence of a small but established effect.
@@ -120,7 +123,7 @@ should therefore not be treated as 60 fully independent samples. The
 correlation is interpreted primarily as a descriptive association rather
 than as independent evidence of a general causal relationship.
 
-The 20,s measurement window limits the characterisation of long-term
+The 20\,s measurement window limits the characterisation of long-term
 steady-state behaviour, and the closed-loop client means the configured
 concurrency is a maximum number of in-flight requests rather than an
 independently controlled arrival rate. Outliers within clean runs are not

@@ -1,0 +1,25 @@
+\begin{table}[t]
+\caption{Persistence matching at 3 and 5 replicas, 100\,\% writes and
+concurrency 32. Cells give the median throughput (req/s) of the evaluated
+Raft implementation against the evaluated EPaxos implementation of the same
+pair, with the Raft/EPaxos ratio in brackets. Every cell is the median of ten
+included repetitions. Modes are the implementations' own: HashiCorp Raft
+BoltStore against \texttt{NewInmemStore}, etcd Raft write-ahead log against
+\texttt{-no-wal}, and \texttt{efficient/epaxos} upstream \texttt{-durable}
+against its in-memory default. \texttt{nvanbenschoten/epaxos} offers no durable
+mode, so that cell is a gap and is never filled with an added mechanism.}
+\label{tab:persistence}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Persistence & Rep. & \shortstack[r]{HashiCorp Raft /\\original EPaxos} &
+\shortstack[r]{etcd Raft /\\nvb EPaxos} \\
+\midrule
+durable & 3 & 4{,}425 / 2{,}005 [2.2$\times$] & gap \\
+durable & 5 & 3{,}294 / 1{,}838 [1.8$\times$] & gap \\
+memory  & 3 & 29{,}660 / 5{,}585 [5.3$\times$] & 12{,}884 / 4{,}226 [3.0$\times$] \\
+memory  & 5 & 24{,}573 / 5{,}613 [4.4$\times$] & 8{,}437 / 1{,}600 [5.3$\times$] \\
+\bottomrule
+\end{tabular}
+\end{table}
