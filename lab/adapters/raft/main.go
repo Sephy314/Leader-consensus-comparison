@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -503,6 +504,42 @@ func setupRaft(dir, bindAddr string, advertise *net.TCPAddr, peers []raft.Server
 	return r, iso, nil
 }
 
+// captureProfile writes a CPU profile covering the first secs seconds of the
+// process and a heap profile at the end of that window, into dir. It exists
+// for the diagnostic in docs/notes/2026-09-26-cpu-profile.md and is enabled
+// only when PPROF_DIR is set, so recorded runs are unaffected.
+func captureProfile(dir, addr string, secs int) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("pprof: mkdir %s: %v", dir, err)
+		return
+	}
+	name := strings.ReplaceAll(addr, ":", "_")
+	cpuPath := filepath.Join(dir, fmt.Sprintf("cpu-%s-%d.pprof", name, time.Now().Unix()))
+	f, err := os.Create(cpuPath)
+	if err != nil {
+		log.Printf("pprof: create %s: %v", cpuPath, err)
+		return
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		log.Printf("pprof: start: %v", err)
+		f.Close()
+		return
+	}
+	log.Printf("pprof: capturing %ds of CPU into %s", secs, cpuPath)
+	go func() {
+		time.Sleep(time.Duration(secs) * time.Second)
+		pprof.StopCPUProfile()
+		f.Close()
+		hp := filepath.Join(dir, "heap-"+name+".pprof")
+		if hf, err := os.Create(hp); err == nil {
+			runtime.GC()
+			pprof.WriteHeapProfile(hf)
+			hf.Close()
+		}
+		log.Printf("pprof: wrote %s", cpuPath)
+	}()
+}
+
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*gomaxprocs)
@@ -512,6 +549,18 @@ func main() {
 			log.Fatal(err)
 		}
 		*myAddr = host
+	}
+
+	// Diagnostic only: PPROF_DIR is set by the profiling recipe in
+	// docs/notes/2026-09-26-cpu-profile.md and never by a recorded run.
+	if pdir := os.Getenv("PPROF_DIR"); pdir != "" {
+		secs := 30
+		if v := os.Getenv("PPROF_SECONDS"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				secs = n
+			}
+		}
+		captureProfile(pdir, *myAddr, secs)
 	}
 
 	replicaID, nodeList := registerWithMaster(*masterAddr, *myAddr, *clientPort)

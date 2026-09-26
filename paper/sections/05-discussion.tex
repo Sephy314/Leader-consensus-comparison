@@ -143,12 +143,15 @@ behaviour with a substantial difference in persistence configuration, and
 its EPaxos/Raft ratio cannot be treated as an intrinsic property of the two
 protocol families.
 
-The resource measurements point the same way. Mean per-replica CPU
-utilisation was similar between the two baseline measurements even though
-their throughput differs, and the elected Raft leader did not form the CPU
-hotspot in the scaling configurations, so the concrete implementation
-distributed CPU work differently from what a simple leader-as-bottleneck
-model predicts (Section~\ref{sec:evaluation}).
+The resource measurements add a second observation. Mean per-replica CPU
+utilisation was similar between the two baseline implementations even though
+their throughput differs, and within the Raft scaling runs the elected leader
+consumed 2.2 to 3.8 times the CPU of a follower, the ratio growing with
+cluster size. The concentration that a leader-centred request path implies
+therefore does appear in resource use; what the throughput results do not
+show is a clean scaling penalty for it, because the EPaxos measurements at
+the largest sizes are confounded by client timeouts
+(Section~\ref{sec:evaluation}).
 
 The combined results therefore support an implementation-sensitive reading
 of the Raft--EPaxos comparison: measured throughput and latency arise from

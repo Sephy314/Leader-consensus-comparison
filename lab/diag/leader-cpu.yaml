@@ -1,0 +1,72 @@
+name: diag-cpu-profile
+services:
+  master:
+    image: conslab:lab
+    command: ["raftmaster", "-port", "7087", "-n", "3"]
+    cpus: 1
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:27087:7087"
+    networks: [bench]
+  replica0:
+    image: conslab:lab
+    command: ["raftadapter", "-master", "master:7087", "-addr", "replica0", "-client-port", "7070", "-raft-port", "6000", "-dir", "/data", "-gomaxprocs", "4", "-heartbeat-ms", "1000", "-election-ms", "2000", "-snapshot-threshold", "8192", "-trailing-logs", "1024"]
+    cpus: 2
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:28070:8070"
+    environment:
+      - PPROF_DIR=/profiles
+      - PPROF_SECONDS=22
+    volumes:
+      - raftdata0:/data
+      - /tmp/diag-cpu/profiles:/profiles
+    networks: [bench]
+  replica1:
+    image: conslab:lab
+    command: ["raftadapter", "-master", "master:7087", "-addr", "replica1", "-client-port", "7070", "-raft-port", "6000", "-dir", "/data", "-gomaxprocs", "4", "-heartbeat-ms", "1000", "-election-ms", "2000", "-snapshot-threshold", "8192", "-trailing-logs", "1024"]
+    cpus: 2
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:28071:8070"
+    environment:
+      - PPROF_DIR=/profiles
+      - PPROF_SECONDS=22
+    volumes:
+      - raftdata1:/data
+      - /tmp/diag-cpu/profiles:/profiles
+    networks: [bench]
+  replica2:
+    image: conslab:lab
+    command: ["raftadapter", "-master", "master:7087", "-addr", "replica2", "-client-port", "7070", "-raft-port", "6000", "-dir", "/data", "-gomaxprocs", "4", "-heartbeat-ms", "1000", "-election-ms", "2000", "-snapshot-threshold", "8192", "-trailing-logs", "1024"]
+    cpus: 2
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:28072:8070"
+    environment:
+      - PPROF_DIR=/profiles
+      - PPROF_SECONDS=22
+    volumes:
+      - raftdata2:/data
+      - /tmp/diag-cpu/profiles:/profiles
+    networks: [bench]
+  client:
+    image: conslab:lab
+    command: ["client", "-maddr", "master", "-mport", "7087", "-protocol", "raft", "-replicas", "3", "-w", "100", "-c", "32", "-conflict", "0", "-hot-keys", "1", "-duration", "20", "-warmup", "3", "-out", "/out", "-run-id", "diag-cpu-profile", "-seed", "42", "-keyspace", "1000", "-timeout-ms", "2000", "-gomaxprocs", "4"]
+    cpus: 2
+    mem_limit: 512m
+    volumes:
+      - /tmp/diag-cpu/out:/out
+    depends_on:
+      - master
+      - replica0
+      - replica1
+      - replica2
+    networks: [bench]
+networks:
+  bench:
+    driver: bridge
+volumes:
+  raftdata0: {}
+  raftdata1: {}
+  raftdata2: {}

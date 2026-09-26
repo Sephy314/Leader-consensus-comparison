@@ -253,21 +253,23 @@ mean per-replica network rates, aggregated over the evaluated runs.}
 Figure~\ref{fig:per-replica-cpu} examines the distribution of CPU
 utilisation in the nine-replica scaling experiment. Raft per-replica means
 ranged from 16.3\,\% to 29.4\,\%. The replica serving as leader during a
-given repetition generally consumed less CPU than the followers. Labelling
-each run by the leader reported at the start of its measured phase, the
-leader/follower CPU ratio was 0.61--0.64 at three replicas, 0.70 at five
-replicas, and 0.73--0.75 at seven and nine replicas, using the medians over
-the ten repetitions.
+given repetition consumed substantially \emph{more} CPU than the followers.
+Taking the leader from each run's own Raft log, the leader/follower ratio of
+mean utilisation was 2.2 at three replicas, 2.8 at five, 3.3 at seven and 3.8
+at nine replicas, using the medians over the ten repetitions, so the leader's
+share of the cluster's CPU grows with cluster size.
 
-This pattern is consistent with the request path of the evaluated
-HashiCorp Raft implementation, in which the leader sends AppendEntries and
-waits for quorum responses while followers receive, persist, and apply
-replicated log entries. The measurements do not isolate the contributions
-of persistence, state-machine application, or communication processing to
-the observed CPU difference. They therefore establish that the leader did
-not form the CPU hotspot in the evaluated implementation, but do not by
-themselves identify the individual processing components responsible for
-the difference.
+This is consistent with the request path of the evaluated HashiCorp Raft
+implementation: the leader serves the benchmark client, applies every command,
+persists its own log, and broadcasts to every peer, whereas a follower receives,
+persists, and applies. A CPU profile of one three-replica run shows the same
+shape of work on both roles, about two thirds of the samples going to system
+calls and lock waits on the persistence path, with the leader differing from a
+follower chiefly in how much of that work it performs. The instrumentation does
+not separate the persistence, application, and transport contributions, but the
+direction is unambiguous: the elected leader was the CPU hotspot in the
+evaluated implementation, and its relative cost grew with the number of peers
+it serves.
 
 \begin{figure}[t]
 \centering
@@ -635,9 +637,10 @@ implementation-specific.
 \item Failure of the Raft leader produced an availability gap two orders of
 magnitude larger than failure of a Raft follower or an EPaxos replica.
 
-\item The elected leader did not form the CPU hotspot in the evaluated
-HashiCorp Raft implementation, and the two baseline implementations used
-similar per-replica CPU despite their different throughput.
+\item The elected leader was the CPU hotspot in the evaluated HashiCorp Raft
+implementation, using 2.2 times a follower's CPU at three replicas and 3.8
+times at nine, while the two protocol families used similar per-replica CPU
+overall.
 
 \item Implementation choices change the measured relationship. The spread of
 retained throughput differs by about a factor of twenty between the two delay
