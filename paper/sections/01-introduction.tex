@@ -36,28 +36,16 @@ differences between Raft and EPaxos attributable to implementation choices
 rather than to the protocol families themselves?
 \end{itemize}
 
-We make the following contributions:
-\begin{itemize}
-\item \textbf{Reproducible benchmark infrastructure:} the Consensus Lab runs
-Raft and EPaxos in a common containerised environment through a common client
-harness and benchmark-facing interface; the lab, configurations, and analysis
-pipeline are released at
-\url{https://github.com/Sephy314/Leader-consensus-comparison}.
-\item \textbf{Sensitivity-oriented evaluation:} throughput and latency are
-measured across controlled variations in replica count, client concurrency,
-conflict rate, read/write composition, and communication conditions, so the
-evaluation examines changes across conditions rather than a single
-configuration.
-\item \textbf{Failure and communication analysis:} we characterise
-availability under Raft leader failure, Raft follower failure, and EPaxos
-replica failure, and separate sensitivity to communication cost applied inside
-the implementations from the same nominal cost applied outside them.
-\item \textbf{Implementation-level analysis:} multiple implementations of the
-two protocol families are evaluated, including matched persistence
-configurations; the results show that implementation mechanisms can
-materially change, and can reverse, the measured relationship between Raft
-and EPaxos.
-\end{itemize}
+We contribute a reproducible benchmark that runs both protocol families in
+one containerised environment through a shared client harness and workload
+generator, released at
+\url{https://github.com/Sephy314/Leader-consensus-comparison}; a
+sensitivity-oriented evaluation that varies replica count, concurrency,
+conflict rate, read/write composition, and communication conditions rather
+than reporting a single configuration; and an implementation-level analysis,
+using multiple implementations of each family and matched persistence
+configurations, which shows that implementation mechanisms can materially
+change and even reverse the measured relationship.
 
 The experiments run in a local containerised environment. The results are
 therefore measurements of the evaluated implementations under the specified

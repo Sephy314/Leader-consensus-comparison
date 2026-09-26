@@ -356,7 +356,7 @@ application-level one-way message delay. It should therefore be interpreted
 as a controlled communication-condition experiment rather than as a direct
 simulation of a physical network.
 
-Figure~\ref{fig:throughput-commcost} shows mean throughput at each delay
+Figure~\ref{fig:delay-merged}a shows mean throughput at each delay
 level with zero jitter for four implementations. The implementations
 exhibited substantially different sensitivity to the injected delay.
 HashiCorp Raft decreased from 4{,}502\,req/s at zero delay to
@@ -371,15 +371,6 @@ The measured ordering therefore differed across implementations under
 added communication delay. The 95\,\% confidence intervals of the means
 were separated between the evaluated implementations at every non-zero
 delay level.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.78\columnwidth]{figures/throughput-commcost.pdf}
-\caption{Mean throughput by application-level one-way communication
-delay at 3 replicas, 100\,\% writes, and concurrency 32 for the four
-evaluated implementations.}
-\label{fig:throughput-commcost}
-\end{figure}
 
 Median latency increased with the injected delay for all four
 implementations. At 10\,ms, the measured p50 values were 22.6\,ms for
@@ -477,12 +468,11 @@ implementation's send path. The controlled network-delay family applies the
 same nominal condition from outside the implementations: the runner installs a
 \texttt{tc/netem} qdisc inside each replica's network namespace and delays only
 traffic addressed to another replica, so no adapter sleeps and no consensus
-source is modified. The 0\,ms point is the family's own baseline, recorded with
-\texttt{applied=false} rather than with an installed qdisc. All 200 runs were
-included and none was flagged by the host-telemetry rule.
+source is modified. The 0\,ms point is the family's own baseline, recorded
+without a qdisc, and all 200 runs were included.
 
 Median throughput declined monotonically with the applied delay for all four
-implementations (Figure~\ref{fig:throughput-networkdelay}); a Kruskal--Wallis
+implementations (Figure~\ref{fig:delay-merged}b); a Kruskal--Wallis
 test over the five delay levels gives $H=47.06$ against $\chi^2_4=9.49$ for
 each implementation, and the observed range of the ten repetitions does not
 overlap between adjacent delay levels for any of them. At 10\,ms the
@@ -507,14 +497,18 @@ directions rather than a single send. The two mechanisms are not
 interchangeable, and the controlled family is the evidence used here for
 delay sensitivity.
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=0.85\columnwidth]{figures/networkdelay-throughput.pdf}
-\caption{Median throughput (req/s) against one-way delay applied to
-inter-replica traffic with \texttt{tc/netem} at 3 replicas, 100\,\% writes and
-concurrency 32, for the four evaluated implementations. No jitter is applied.}
-\label{fig:throughput-networkdelay}
-\end{figure}
+\includegraphics[width=0.45\textwidth]{figures/throughput-commcost.pdf}\hfill
+\includegraphics[width=0.45\textwidth]{figures/networkdelay-throughput.pdf}
+\caption{Throughput against added one-way delay at 3 replicas, 100\,\% writes
+and concurrency 32, for the four evaluated implementations. (a)~Delay injected
+inside each implementation's send path, where the implementations diverge
+sharply. (b)~The same nominal delay applied to inter-replica traffic with
+\texttt{tc/netem}, leaving the implementations unmodified, where the spread is
+much narrower.}
+\label{fig:delay-merged}
+\end{figure*}
 
 \subsection{Conflict Validation}
 

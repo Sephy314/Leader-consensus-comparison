@@ -107,13 +107,12 @@ several comparisons whose medians differ, such as at seven and nine
 replicas. We therefore treat overlapping comparisons as inconclusive rather
 than as evidence of a small but established effect.
 
-The suite contains many configurations and pairwise comparisons. For
-families of related hypothesis tests, p-values are adjusted using the
-Holm--Bonferroni procedure to control the family-wise error rate at
-$\alpha=0.05$. The correction is applied within predefined hypothesis
-families rather than across every measurement in the entire benchmark
-suite. Results that do not remain statistically detectable after the
-correction are not presented as established effects.
+The suite contains many configurations and pairwise comparisons, and no
+multiplicity correction is applied (Section~\ref{sec:setup}): a $p$-value
+quoted in the evaluation is the uncorrected value for that single
+comparison. Tests are reported next to the family they belong to, so the
+number of comparisons behind a claim is visible, and we rely on comparisons
+that are well separated rather than on borderline significance.
 
 The election correlation analysis requires particular caution: the measured
 failed-election count is an outcome of the recovery process and is

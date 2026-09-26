@@ -1,0 +1,27 @@
+\begin{table}[t]
+\caption{The experiment families, each with ten independent repetitions. The
+first seven form the recorded suite; the last three were added afterwards
+and are analysed from their own results subtrees, never pooled with it.
+The defaults of Section~\ref{sec:setup} are three replicas, 100\,\% writes
+and concurrency 32.}
+\label{tab:suite}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.44\columnwidth}@{}}
+\toprule
+Family & Varied \\
+\midrule
+Workload & write ratio 0--100\,\%, concurrency 1--128 \\
+Scaling & replicas 3--9 \\
+Conflict & configured conflict ratio 0--100\,\% \\
+Concurrency & concurrency 1--256 \\
+Communication cost & one-way delay 0--10\,ms; jitter 0--100\,\% at 5\,ms \\
+Election & failed-election target 0--5 \\
+Failure & Raft leader, Raft follower, EPaxos replica kill \\
+\midrule
+Controlled network delay & \texttt{tc/netem} delay 0--10\,ms \\
+Persistence matching & storage mode, memory against durable \\
+Conflict validation & conflict ratio $\times$ number of hot keys \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -39,15 +39,13 @@ persistent state in per-replica Docker volumes, with a snapshot threshold of
 8{,}192 entries and 1{,}024 trailing logs.
 
 The second Raft implementation uses \texttt{go.etcd.io/raft} v3.7.0
-\cite{etcdraft}, wrapped in a lab adapter
-(\texttt{lab/adapters/etcdraft/}) that follows the library's
-asynchronous-storage-writes interface: a dedicated append thread batches up
-to 64 log entries into one write-ahead-log write with a single fsync,
-mirroring HashiCorp Raft's group commit. The adapter sets
-\texttt{MaxSizePerMsg}=4{,}096 and \texttt{MaxInflightMsgs}=256 (the library
-provides no defaults), enables pre-vote to match HashiCorp Raft, and
-compacts the log below \texttt{applied}~$-$~1{,}024 trailing entries, keeping
-its log in a write-ahead log.
+\cite{etcdraft}, wrapped in a lab adapter that follows the library's
+asynchronous-storage-writes interface: a dedicated append thread batches log
+entries into a single write-ahead-log write with one fsync, mirroring
+HashiCorp Raft's group commit. The adapter sets the message-size and
+in-flight limits the library requires, enables pre-vote to match HashiCorp
+Raft, and compacts its log below the applied index; the exact values are
+documented with the adapter in the repository.
 
 EPaxos uses the upstream \texttt{efficient/epaxos} server and master
 \cite{moraru2013epaxos}, pinned at commit \texttt{791b115} and executed with
@@ -108,76 +106,39 @@ from \texttt{/proc/<pid>/net/dev}, and resident memory from
 
 \subsection{Testbed Configuration and Parameters}
 
-Each performance run consists of a 3-second warm-up followed by a 20-second
-measured phase, repeated independently ten times. Each replica container is
-allocated 2.0 CPUs and 512\,MB; the client 2.0 CPUs and 512\,MB; the
-coordination service 1.0 CPU and 256\,MB. \texttt{GOMAXPROCS} is 4 for all
-replicas. The request timeout is 2{,}000\,ms. Raft uses a 1{,}000\,ms
-heartbeat timeout, a 2{,}000\,ms election timeout, a snapshot threshold of
-8{,}192 entries, and 1{,}024 trailing logs. Raft retains its persistent
-state during a run while EPaxos uses in-memory state; this difference is
-part of the implementation configuration being measured. Docker volumes are
-isolated between repetitions so no consensus state carries over.
-
-To examine sensitivity to communication delay, each outbound inter-replica
+Table~\ref{tab:testbed} lists the configuration of every reported run. To
+examine sensitivity to communication delay, each outbound inter-replica
 message can be delayed by $d = c + U(0, cj/100)$, where $c$ is a fixed
-one-way cost in milliseconds (0, 1, 3, 5, 10) and $j$ is a jitter percentage
-(0, 5, 10, 50, 100, evaluated at the 5\,ms cost level). This models
-application-level message delay rather than a physical network; it does not
+one-way cost in milliseconds and $j$ a jitter percentage; this models
+application-level message delay rather than a physical network, and does not
 reproduce queueing, packet loss, or link-level scheduling.
 
-Each repetition uses a fresh Docker Compose project with new containers,
-networks, and volumes. Before execution the harness verifies the environment
-is free of leftover containers, networks, volumes, and ports; after
-execution it verifies teardown. A run that fails isolation checks is
-recorded as an invalid attempt rather than silently reused. Configurations
-are scheduled using blocked randomisation: each repetition block contains
-every configuration exactly once in a seeded shuffled order, and each
-repetition uses an independent workload seed. Both seeds are recorded.
+\input{tables/tab-testbed}
 
-The principal experiment dimensions are replica count (3, 5, 7, 9), write
-ratio (0, 10, 50, 90, 100\,\%), conflict ratio (0, 10, 25, 50, 75, 90,
-100\,\%), client concurrency (1--256), and communication cost (0, 1, 3, 5,
-10\,ms).
+Each repetition uses a fresh Docker Compose project with new containers,
+networks, and volumes. The harness verifies before execution that no
+leftover containers, networks, volumes, or ports remain, and verifies
+teardown afterwards; a run that fails those checks is recorded as an invalid
+attempt rather than silently reused. Configurations are scheduled by blocked
+randomisction: each repetition block contains every configuration exactly
+once in a seeded shuffled order, and each repetition uses an independent
+recorded workload seed.
 
 \subsection{Experiment Suite}
 
-The experiment suite contains seven families, each evaluated with ten
-independent repetitions:
+Table~\ref{tab:suite} lists the experiment families. The first seven form
+the recorded suite and the last three were added afterwards, each analysed
+from its own results subtree and never pooled with the recorded dataset
+(Sections~\ref{sec:persistence-results}--\ref{sec:conflict-results}). The
+Workload and Concurrency families overlap in concurrency by design: the
+Workload family measures the interaction between write ratio and
+concurrency, while the Concurrency family isolates the concurrency dimension
+at 100\,\% writes and extends it to 256, where the throughput difference is
+largest. That overlap also provides a check on run-to-run variability. The
+Election family uses the \emph{measured} failed-election count from the
+adapters' pre-vote and vote counters rather than the configured target.
 
-\begin{itemize}
-
-\item \textbf{Workload}: write-ratio (0--100\,\%) and concurrency (1--128)
-sweeps at three replicas.
-
-\item \textbf{Scaling}: replica-count sweep (3--9) at 100\,\% writes and
-concurrency 32.
-
-\item \textbf{Conflict}: conflict-ratio sweep (0--100\,\%) at three
-replicas, 100\,\% writes, concurrency 32.
-
-\item \textbf{Concurrency}: concurrency sweep (1--256) at three replicas,
-100\,\% writes. The Workload and Concurrency families overlap in
-concurrency (1--128) by design: the Workload family measures the
-interaction between write ratio and concurrency, while the Concurrency
-family isolates the concurrency dimension at 100\,\% writes and extends it
-to 256, where the throughput difference is largest. The overlap also
-provides a check on run-to-run variability.
-
-\item \textbf{Communication cost}: one-way delay sweep (0--10\,ms) at three
-replicas, 100\,\% writes, concurrency 32, plus a jitter sweep (0--100\,\%)
-at the 5\,ms level.
-
-\item \textbf{Election}: Raft leader-election disruption. The leader is
-terminated and transport to the survivors is isolated for a nominal target
-of 0--5 failed election attempts; the analysis uses the \emph{measured}
-failed-election count from the adapters' pre-vote/vote counters, not the
-target.
-
-\item \textbf{Failure}: Raft leader kill, Raft follower kill, and EPaxos
-replica kill at three replicas, 100\,\% writes, concurrency 32.
-
-\end{itemize}
+\input{tables/tab-suite}
 
 Failure injection is deterministic: the runner kills the selected container
 with \texttt{docker kill} at a configured offset into the measured phase.
@@ -190,39 +151,34 @@ therefore approximate.
 
 \subsection{Correctness Validation}
 
-The performance experiments are not intended as a formal verification of
-consensus correctness. A separate correctness harness
-(\texttt{runner correctness}) checks state convergence under the tested
-execution and failure scenarios. It issues 2{,}000 deterministic requests,
-each writing a unique key derived from its request identifier with a
-deterministic value. Each replica exposes a read-only \texttt{GetState} RPC
-returning a state snapshot and the applied-command count; the harness
-compares replica states rather than internal logs, so it does not assume
-that Raft and EPaxos expose equivalent log representations. Each
-implementation is tested at concurrency 1, 8, and 32 and under the failure
-scenarios of the failure family. Because Raft persists its log, a restarted
-Raft replica must recover its committed state; EPaxos uses in-memory state,
-so a restarted EPaxos replica is evaluated for liveness and subsequent
-participation. This validation checks state convergence for the tested
-scenarios; it does not constitute a general linearizability proof.
+The performance experiments are not a formal verification of consensus
+correctness. A separate harness (\texttt{runner correctness}) issues
+2{,}000 deterministic requests, each writing a unique key, and compares
+replica state snapshots returned by a read-only \texttt{GetState} RPC, so it
+does not assume that the two protocols expose equivalent log
+representations. Each implementation is tested at concurrency 1, 8, and 32
+and under the failure scenarios of the failure family, including a restarted
+Raft replica recovering its committed state from its persistent log. This
+checks state convergence for the tested scenarios; it is not a general
+linearizability proof.
 
 \subsection{Experimental Integrity and Statistical Analysis}
 
 Host-level telemetry (load average, available memory) is recorded at
-approximately 200\,ms resolution for every run. Host suspension, scheduling
-gaps, CPU starvation, and clock anomalies are detected and recorded. A run
-flagged as contaminated is excluded from aggregates and replaced so each
-configuration retains its planned number of observations; the replacement
-is recorded as a separate attempt and the original remains in the raw
+approximately 200\,ms resolution for every run, and host suspension,
+scheduling gaps, CPU starvation, and clock anomalies are detected and
+recorded. A run flagged as contaminated is excluded from aggregates and
+replaced, so each configuration keeps its planned number of observations;
+the replacement is a new attempt and the original remains in the raw
 dataset.
 
 All aggregates are computed from raw per-run observations. Because a small
 number of repetitions stalled (Section~\ref{sec:evaluation}), throughput
 and latency are summarised by the median of the per-repetition values, with
-95\,\% confidence intervals from non-parametric bootstrap (10{,}000
-resamples). Protocol differences are tested with the exact Mann-Whitney
-$U$ test and workload-trend hypotheses with the Kruskal-Wallis test; no
-multiplicity correction is applied. Latency is reported as p50/p95/p99.
-The election experiment is treated as a Raft-specific recovery
-characterisation reported descriptively, with no causal interpretation
-assigned to the measured association.
+95\,\% confidence intervals from a non-parametric bootstrap (10{,}000
+resamples). Protocol differences use the exact Mann-Whitney $U$ test and
+workload-trend hypotheses the Kruskal-Wallis test, both without a
+multiplicity correction: a quoted $p$-value is the uncorrected value for
+that single comparison. The election experiment is treated as a
+Raft-specific recovery characterisation reported descriptively, with no
+causal interpretation assigned to the measured association.
