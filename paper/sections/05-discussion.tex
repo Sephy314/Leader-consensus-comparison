@@ -105,8 +105,8 @@ is therefore treated as descriptive rather than causal.
 The communication experiments reveal a second form of sensitivity. The
 application-level communication-cost experiment initially showed large
 differences between implementations. With 10\,ms of injected one-way
-delay, throughput reductions were 72\,% for HashiCorp Raft, 81\,% for
-nvb EPaxos, 96\,% for the original EPaxos, and 99.3\,% for etcd Raft.
+delay, throughput reductions were 72\,\% for HashiCorp Raft, 81\,\% for
+nvb EPaxos, 96\,\% for the original EPaxos, and 99.3\,\% for etcd Raft.
 The etcd Raft implementation was particularly sensitive, falling from
 6{,}420\,req/s without injected delay to 375\,req/s at 1\,ms and
 45\,req/s at 10\,ms.
@@ -116,9 +116,9 @@ results should not be interpreted directly as protocol-level communication
 sensitivity. When the same nominal delay was applied externally using
 \texttt{tc/netem}, rather than by inserting sleeps into the implementations'
 send paths, all four implementations showed a more comparable response.
-At 10\,ms, the implementations retained 18.1\,% of baseline throughput
-for HashiCorp Raft, 17.6\,% for etcd Raft, 13.8\,% for original EPaxos,
-and 9.0\,% for nvb EPaxos. Thus, the retained-throughput fractions differed
+At 10\,ms, the implementations retained 18.1\,\% of baseline throughput
+for HashiCorp Raft, 17.6\,\% for etcd Raft, 13.8\,\% for original EPaxos,
+and 9.0\,\% for nvb EPaxos. Thus, the retained-throughput fractions differed
 by approximately a factor of two across the four implementations under the
 controlled network condition, compared with a factor of approximately forty
 under application-level injection.
@@ -145,9 +145,9 @@ magnitude of the observed effect depends on where and how the cost is
 introduced.
 
 The jitter experiment provides a further qualification. At a 5\,ms base
-delay, increasing jitter to 100\,% reduced throughput by 24\,% for
-HashiCorp Raft and nvb EPaxos, 36\,% for original EPaxos, and 32\,% for
-etcd Raft. Under the implemented jitter model, however, 100\,% jitter also
+delay, increasing jitter to 100\,\% reduced throughput by 24\,\% for
+HashiCorp Raft and nvb EPaxos, 36\,\% for original EPaxos, and 32\,\% for
+etcd Raft. Under the implemented jitter model, however, 100\,\% jitter also
 increased the mean injected delay from 5 to 7.5\,ms. Consequently, the
 experiment cannot isolate delay variance from the corresponding increase in
 mean communication cost. The observed effect is therefore evidence of
@@ -198,10 +198,10 @@ with durable storage (3{,}294 against 1{,}838), and 5.3$\times$ for the
 etcd Raft/nvb EPaxos pair (8{,}437 against 1{,}600).
 
 The same implementation also changed substantially when its storage mode
-changed. At three replicas, durable storage retained only 15\,% of
-HashiCorp Raft's in-memory throughput, 48\,% for etcd Raft, and 36\,% for
+changed. At three replicas, durable storage retained only 15\,\% of
+HashiCorp Raft's in-memory throughput, 48\,\% for etcd Raft, and 36\,\% for
 original EPaxos. At five replicas, the corresponding retention fractions
-were 13\,%, 69\,%, and 33\,%. These results show that the recorded
+were 13\,\%, 69\,\%, and 33\,\%. These results show that the recorded
 baseline comparison combines consensus behaviour with a substantial
 difference in persistence configuration. The observed EPaxos/Raft throughput
 ratio in the baseline therefore cannot be treated as an intrinsic property
@@ -262,7 +262,7 @@ The controlled network experiment is particularly relevant when considering
 communication-intensive environments. At 10\,ms of externally applied
 one-way delay, all four implementations experienced substantial throughput
 reductions, while the retained-throughput fractions remained within a
-relatively narrow 9.0--18.1\,% range. This result demonstrates measurable
+relatively narrow 9.0--18.1\,\% range. This result demonstrates measurable
 differences in communication sensitivity without supporting a universal
 claim about the relative WAN performance of EPaxos and Raft. The experiment
 uses a single-host environment with artificial delay and does not reproduce
