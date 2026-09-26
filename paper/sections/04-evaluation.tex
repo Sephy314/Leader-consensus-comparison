@@ -146,14 +146,6 @@ and $H=1.75$ for EPaxos, both below the $\chi^2_4$ critical value of 9.49.
 The measurements therefore do not provide evidence of a systematic
 throughput effect associated with write ratio under the tested conditions.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.78\columnwidth]{figures/throughput-write-ratio.pdf}
-\caption{Throughput by write ratio at 3 replicas and concurrency
-32. Points show individual repetitions; the line marks the median.}
-\label{fig:throughput-write-ratio}
-\end{figure}
-
 Figure~\ref{fig:throughput-conflict-ratio} shows throughput across the
 configured conflict-ratio sweep. Median throughput ranged from
 4{,}149 to 4{,}512\,req/s for Raft and from 5{,}078 to 5{,}391\,req/s for
@@ -164,10 +156,12 @@ configured conflict ratio was observed for either implementation.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\columnwidth]{figures/throughput-conflict-ratio.pdf}
-\caption{Throughput by conflict ratio at 3 replicas, 100\,\%
-writes, and concurrency 32. Points show individual repetitions; the line
-marks the median.}
+\includegraphics[width=0.78\columnwidth]{figures/throughput-ratios.pdf}
+\caption{Throughput at 3 replicas and concurrency 32. (a)~By write ratio;
+(b)~by configured conflict ratio at 100\,\% writes. Neither sweep shows a
+systematic throughput trend. Points show individual repetitions; lines
+mark the medians.}
+\label{fig:throughput-write-ratio}
 \label{fig:throughput-conflict-ratio}
 \end{figure}
 

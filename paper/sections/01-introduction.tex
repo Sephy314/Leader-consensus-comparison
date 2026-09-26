@@ -1,60 +1,92 @@
 \section{Introduction}
-Consensus protocols coordinate replicas so that a replicated state machine
-applies operations in a consistent order. The two dominant design families
-contrast in how they establish that order: leader-based protocols such as
-Raft~\cite{ongaro2014raft} direct client operations through an elected
-leader, whereas leaderless protocols such as
-EPaxos~\cite{moraru2013epaxos} let replicas propose operations independently
-and determine dependencies among them. Section~\ref{sec:background} develops
-this contrast and the related empirical work.
 
-These architectural differences motivate empirical comparison, but a simple
-protocol-level ranking is difficult to interpret. Measured performance
-depends on replica count, client concurrency, workload composition, conflict
-rate, and communication conditions, and it is also affected by implementation
-mechanisms such as persistence, scheduling, transport, and message handling.
-The presence of a leader is a structural difference, but it does not by
-itself determine the throughput, latency, or failure behaviour of a concrete
-implementation, so a measured difference between two implementations cannot
-automatically be attributed to the consensus algorithm.
+\label{sec:introduction}
+
+Consensus protocols coordinate replicas so that a replicated state machine
+can apply operations consistently despite concurrent execution and replica
+failures. Two widely studied design approaches differ in how they establish
+this coordination. Leader-based protocols such as Raft~\cite{ongaro2014raft}
+direct client operations through an elected leader, whereas leaderless
+protocols such as EPaxos~\cite{moraru2013epaxos} allow replicas to propose
+operations independently and determine the dependencies required for
+consistent execution. Section~\ref{sec:background} develops this distinction
+and reviews related empirical work.
+
+These architectural differences motivate empirical comparison, but a direct
+protocol-level ranking is difficult to interpret. Measured throughput and
+latency depend on replica count, client concurrency, workload composition,
+conflict rate, and communication conditions. They are also affected by
+implementation mechanisms including persistence, request processing,
+scheduling, transport, and message handling. The presence or absence of a
+leader is therefore an important structural property, but it does not by
+itself determine the performance or failure behaviour of a concrete
+implementation. A measured difference between two implementations cannot
+automatically be attributed to the consensus algorithm alone.
+
+This distinction matters for experimental studies of consensus: a
+benchmark that varies only the protocol while holding a single
+implementation and workload fixed cannot establish whether a measured
+difference is robust to changes in system conditions or implementation
+choices, whereas evaluating multiple implementations and controlled
+operating conditions can reveal which observations remain stable and which
+are specific to the systems being measured.
 
 In this paper, we experimentally compare Raft and EPaxos as representative
-leader-based and leaderless protocols, measuring throughput, latency,
-resource utilisation, and failure behaviour under controlled variation, and
-using multiple implementations and matched persistence configurations to test
-whether observed differences hold across implementation choices.
+leader-based and leaderless consensus protocols. We measure throughput,
+latency, resource utilisation, and failure behaviour under controlled
+variation of system and workload conditions, and we additionally evaluate
+multiple implementations and matched persistence configurations to examine
+whether the observed relationship between the two protocol families remains
+stable when implementation-level mechanisms are changed.
 
-We focus on the following research questions:
+We investigate the following research questions:
+
 \begin{itemize}
-\item \textbf{RQ1:} How do throughput and latency change with workload
-and system conditions, including read/write ratio, client concurrency,
-conflict rate, and replica count?
-\item \textbf{RQ2:} How do Raft and EPaxos differ in failure behaviour
-and in their sensitivity to communication cost?
-\item \textbf{RQ3:} To what extent are the observed performance
-differences between Raft and EPaxos attributable to implementation choices
-rather than to the protocol families themselves?
+
+\item \textbf{RQ1:} How do throughput and latency change with workload and
+system conditions, including read/write ratio, client concurrency, conflict
+rate, and replica count?
+
+\item \textbf{RQ2:} How do the evaluated Raft and EPaxos implementations
+differ in failure behaviour and in their sensitivity to communication cost?
+
+\item \textbf{RQ3:} To what extent are the observed performance differences
+between Raft and EPaxos attributable to implementation choices rather than
+to the protocol families themselves?
+
 \end{itemize}
 
-We contribute a reproducible benchmark that runs both protocol families in
-one containerised environment through a shared client harness and workload
-generator, released at
-\url{https://github.com/Sephy314/Leader-consensus-comparison}; a
-sensitivity-oriented evaluation that varies replica count, concurrency,
-conflict rate, read/write composition, and communication conditions rather
-than reporting a single configuration; and an implementation-level analysis,
-using multiple implementations of each family and matched persistence
-configurations, which shows that implementation mechanisms can materially
-change and even reverse the measured relationship.
+To answer these questions, we contribute a reproducible experimental
+framework that executes both protocol families in a common containerised
+environment using a shared client harness and workload generator. The
+complete benchmark and analysis artefacts are released at
+\url{https://github.com/Sephy314/Leader-consensus-comparison}.
 
-The experiments run in a local containerised environment. The results are
-therefore measurements of the evaluated implementations under the specified
-conditions rather than universal production-performance estimates, as
-Section~\ref{sec:threats} discusses in detail.
+We further contribute a sensitivity-oriented evaluation rather than a
+single-configuration benchmark. The experiment suite varies replica count,
+client concurrency, read/write composition, conflict rate, failure mode,
+and communication conditions, allowing performance relationships to be
+examined as functions of controlled system and workload changes.
 
-Section~\ref{sec:background} reviews related work, Section~\ref{sec:setup}
-describes the Consensus Lab and the experiment suite,
-Section~\ref{sec:evaluation} presents the results,
-Section~\ref{sec:discussion} interprets them with respect to the research
-questions, and Sections~\ref{sec:threats} and~\ref{sec:conclusion} discuss
-threats to validity and conclude.
+Finally, we provide an implementation-level analysis using multiple
+implementations of the two protocol families and matched persistence
+configurations. The results show that implementation mechanisms can
+materially change the measured performance relationship and, under matched
+storage conditions, can reverse the ordering observed in the baseline
+configuration.
+
+The experiments are conducted in a local containerised environment.
+Accordingly, the reported values are measurements of the evaluated
+implementations under the specified experimental conditions rather than
+universal estimates of production performance. In particular, the
+communication experiments provide controlled evidence about sensitivity to
+added communication cost, but do not constitute a physical wide-area
+deployment.
+
+The remainder of the paper is organised as follows.
+Section~\ref{sec:background} reviews consensus protocols and related work.
+Section~\ref{sec:setup} describes the Consensus Lab and experimental
+methodology. Section~\ref{sec:evaluation} presents the experimental results,
+and Section~\ref{sec:discussion} interprets them with respect to the research
+questions. Section~\ref{sec:threats} discusses threats to validity, and
+Section~\ref{sec:conclusion} concludes the study.
